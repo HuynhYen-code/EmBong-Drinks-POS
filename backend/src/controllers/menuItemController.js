@@ -1,27 +1,7 @@
 const db = require('../config/db');
+const { recalculateMenuItemCogs } = require('../utils/costCalculator');
 
-// Giả sử có hàm tính lại COGS cho menu_item_size
-const updateMenuItemSizeCogs = async (sizeId, connection) => {
-    const [ings] = await connection.query(`
-        SELECT misi.ingredient_type, misi.ingredient_id, misi.quantity,
-               m.cost_per_base_unit as m_cost,
-               p.current_cost_per_unit as p_cost
-        FROM menu_item_size_ingredients misi
-        LEFT JOIN materials m ON misi.ingredient_type = 'material' AND misi.ingredient_id = m.id
-        LEFT JOIN preps p ON misi.ingredient_type = 'prep' AND misi.ingredient_id = p.id
-        WHERE misi.menu_item_size_id = ?
-    `, [sizeId]);
-
-    let totalCogs = 0;
-    for (let ing of ings) {
-        let cost = 0;
-        if (ing.ingredient_type === 'material' && ing.m_cost) cost = ing.m_cost;
-        if (ing.ingredient_type === 'prep' && ing.p_cost) cost = ing.p_cost;
-        totalCogs += cost * ing.quantity;
-    }
-
-    await connection.query('UPDATE menu_item_sizes SET current_cogs = ? WHERE id = ?', [totalCogs, sizeId]);
-};
+// updateMenuItemSizeCogs has been moved to costCalculator
 
 exports.getAll = async (req, res) => {
     try {
@@ -119,7 +99,7 @@ exports.create = async (req, res) => {
         }
         
         // 4. Calculate COGS
-        await updateMenuItemSizeCogs(sizeId, connection);
+        await recalculateMenuItemCogs(sizeId);
 
         await connection.commit();
         connection.release();
@@ -165,7 +145,7 @@ exports.update = async (req, res) => {
             }
         }
         
-        await updateMenuItemSizeCogs(sizeId, connection);
+        await recalculateMenuItemCogs(sizeId);
 
         await connection.commit();
         connection.release();

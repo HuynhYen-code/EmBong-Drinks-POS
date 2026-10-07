@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { updatePrepCost } = require('./materialController');
+const { recalculatePrepCost } = require('../utils/costCalculator');
 
 exports.getAll = async (req, res) => {
     try {
@@ -46,8 +46,8 @@ exports.create = async (req, res) => {
         await connection.commit();
         connection.release();
         
-        // Cập nhật giá vốn của prep
-        await updatePrepCost(prepId);
+        // Cập nhật giá vốn của prep và các menu items liên quan
+        await recalculatePrepCost(prepId);
 
         res.status(201).json({ id: prepId, message: 'Prep created successfully' });
     } catch (err) {
@@ -85,8 +85,8 @@ exports.update = async (req, res) => {
         await connection.commit();
         connection.release();
         
-        // Cập nhật lại giá vốn
-        await updatePrepCost(id);
+        // Cập nhật lại giá vốn của prep và menu items liên quan
+        await recalculatePrepCost(id);
 
         res.json({ message: 'Prep updated successfully' });
     } catch (err) {
