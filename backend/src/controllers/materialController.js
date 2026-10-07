@@ -55,6 +55,19 @@ exports.update = async (req, res) => {
     }
 };
 
+exports.delete = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('DELETE FROM materials WHERE id = ?', [id]);
+        res.json({ message: 'Material deleted successfully' });
+    } catch (err) {
+        if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+            return res.status(400).json({ error: 'Không thể xóa nguyên liệu này vì nó đang được dùng trong công thức pha chế!' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+};
+
 async function updatePrepCost(prepId) {
     const [ingredients] = await db.query(`
         SELECT pi.quantity, m.cost_per_base_unit 
