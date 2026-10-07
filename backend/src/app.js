@@ -16,9 +16,11 @@ app.use('/api/materials', materialRoutes);
 app.use('/api/preps', prepRoutes);
 app.use('/api/menu-items', menuItemRoutes);
 app.use('/api/orders', orderRoutes);
+const uploadRoutes = require('./routes/uploadRoutes');
 const path = require('path');
 
 app.use('/api/toppings', toppingRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Phục vụ ứng dụng Vue Frontend từ thư mục dist (sau khi build)
 app.use(express.static(path.join(__dirname, '../../frontend/dist')));

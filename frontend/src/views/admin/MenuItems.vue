@@ -71,7 +71,14 @@
             </div>
             <div class="flex-1">
               <label class="block font-bold text-gray-700 mb-1">Link Ảnh (URL)</label>
-              <input v-model="form.image_url" type="text" class="w-full border border-gray-200 rounded-xl px-4 py-2" placeholder="https://..." />
+              <div class="flex gap-2">
+                <input v-model="form.image_url" type="text" class="flex-1 w-full border border-gray-200 rounded-xl px-4 py-2" placeholder="https://..." />
+                <button @click.prevent="triggerUpload" type="button" class="bg-gray-100 border border-gray-200 px-4 rounded-xl hover:bg-gray-200 transition font-bold text-gray-600 flex items-center justify-center">
+                  Tải Lên
+                </button>
+              </div>
+              <input type="file" ref="fileInput" @change="handleFileUpload" class="hidden" accept="image/*" />
+              <div v-if="isUploading" class="text-xs text-brand-500 font-bold mt-1">Đang tải ảnh lên (Vui lòng chờ)...</div>
             </div>
           </div>
           <div class="flex gap-4">
@@ -131,9 +138,41 @@ const preps = ref([])
 const showModal = ref(false)
 const isEditing = ref(false)
 const currentEditId = ref(null)
+const fileInput = ref(null)
+const isUploading = ref(false)
 
 const form = ref({ name: '', category: 'Món Bán Chạy', image_url: '', size: '', price: '', ingredients: [] })
 const tempIng = ref({ selected: '', name: '', qty: '', unit: '', type: '', id: '' })
+
+const triggerUpload = () => {
+  if (fileInput.value) fileInput.value.click()
+}
+
+const handleFileUpload = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  isUploading.value = true
+  const formData = new FormData()
+  formData.append('image', file)
+  
+  try {
+    const res = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000/api') + '/upload', {
+      method: 'POST',
+      body: formData
+    })
+    const data = await res.json()
+    if (res.ok) {
+      form.value.image_url = data.image_url
+    } else {
+      alert('Lỗi tải ảnh: ' + (data.error || 'Lỗi không xác định'))
+    }
+  } catch (err) {
+    alert('Lỗi mạng khi tải ảnh lên máy chủ')
+  } finally {
+    isUploading.value = false
+    e.target.value = ''
+  }
+}
 
 const openCreate = () => {
   isEditing.value = false
