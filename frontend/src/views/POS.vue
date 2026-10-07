@@ -6,9 +6,13 @@
         <div class="flex items-center gap-3">
           <img src="/logo.jpg" alt="Em Bông Logo" class="h-12 w-auto object-contain" />
         </div>
-        <div class="flex gap-4 items-center">
-          <router-link to="/admin" class="text-brand-500 font-bold hover:underline mr-4">Trang Quản Trị</router-link>
-          <div class="px-4 py-2 bg-brand-500/10 text-brand-500 rounded-full font-bold text-sm flex items-center gap-2">
+        <div class="flex gap-3 sm:gap-4 items-center">
+          <button @click="isMobileCartOpen = !isMobileCartOpen" class="lg:hidden bg-brand-500 text-white px-5 py-2 rounded-full font-bold shadow-md hover:opacity-90 transition flex items-center gap-2">
+            <span v-if="!isMobileCartOpen">Giỏ hàng ({{ cartItemCount }})</span>
+            <span v-else>← Về Menu</span>
+          </button>
+          <router-link to="/admin" class="hidden sm:block text-brand-500 font-bold hover:underline mr-2">Trang Quản Trị</router-link>
+          <div class="hidden sm:flex px-4 py-2 bg-brand-500/10 text-brand-500 rounded-full font-bold text-sm items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
             Quầy Phục Vụ
           </div>
@@ -17,8 +21,8 @@
     </header>
     
     <div class="flex-1 flex w-full h-full relative overflow-hidden">
-    <!-- Bảng điều khiển bên trái (Chọn Món, 2/3) -->
-    <div class="w-2/3 h-full flex flex-col bg-surface border-r border-gray-200">
+    <!-- Bảng điều khiển bên trái (Chọn Món) -->
+    <div :class="['h-full flex-col bg-surface border-b lg:border-b-0 lg:border-r border-gray-200 transition-all', isMobileCartOpen ? 'hidden lg:flex lg:w-2/3' : 'flex w-full lg:w-2/3']">
       
       <!-- Thanh Phân loại (Tabs) -->
       <div class="px-6 pt-6 pb-2 shrink-0">
@@ -40,9 +44,9 @@
       <div class="flex-1 overflow-y-auto p-6 pt-2 scrollbar-hide space-y-4">
         
         <div v-for="item in filteredItems" :key="item.id" 
-             class="bg-white rounded-[24px] p-4 shadow-sm border border-gray-100 flex gap-5 items-center hover:shadow-md transition-shadow cursor-pointer"
+             class="bg-white rounded-[24px] p-3 sm:p-4 shadow-sm border border-gray-100 flex gap-4 sm:gap-5 items-center hover:shadow-md transition-shadow cursor-pointer"
              @click="openItemModal(item)">
-          <div class="w-24 h-24 bg-gray-100 rounded-2xl overflow-hidden shrink-0">
+          <div class="w-20 h-20 sm:w-24 sm:h-24 bg-gray-100 rounded-2xl overflow-hidden shrink-0">
              <img :src="item.image_url" class="w-full h-full object-cover" />
           </div>
           <div class="flex-1">
@@ -61,8 +65,8 @@
       </div>
     </div>
 
-    <!-- Bảng điều khiển bên phải (Đơn hàng Hiện tại, 1/3) -->
-    <div class="w-1/3 bg-white flex flex-col h-full shadow-lg z-10">
+    <!-- Bảng điều khiển bên phải (Đơn hàng Hiện tại) -->
+    <div :class="['bg-white flex-col h-full shadow-lg z-10 transition-all', isMobileCartOpen ? 'flex w-full lg:w-1/3' : 'hidden lg:flex lg:w-1/3']">
       <div class="p-6 border-b border-gray-100 shrink-0">
         <h2 class="text-2xl font-bold text-textmain">Đơn Hàng Hiện Tại</h2>
       </div>
@@ -215,6 +219,11 @@ const cart = ref([])
 const showModal = ref(false)
 const selectedItem = ref(null)
 const tempSelection = ref({ size: null, price: 0, toppings: [] })
+const isMobileCartOpen = ref(false)
+
+const cartItemCount = computed(() => {
+  return cart.value.reduce((sum, item) => sum + item.quantity, 0)
+})
 
 const openItemModal = (item) => {
   selectedItem.value = item
