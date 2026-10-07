@@ -36,7 +36,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  if (to.meta.requiresAuth) {
+  if (to.path.startsWith('/admin')) {
     const isAuthenticated = localStorage.getItem('adminAuth') === 'true'
     if (isAuthenticated) {
       next()
