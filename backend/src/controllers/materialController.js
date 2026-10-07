@@ -56,11 +56,17 @@ exports.update = async (req, res) => {
 exports.delete = async (req, res) => {
     const { id } = req.params;
     try {
+        // Kiểm tra xem Material có đang được dùng trong MenuItem nào không (Polymorphic FK)
+        const [menuUsage] = await db.query('SELECT id FROM menu_item_size_ingredients WHERE ingredient_type = "material" AND ingredient_id = ? LIMIT 1', [id]);
+        if (menuUsage.length > 0) {
+            return res.status(400).json({ error: 'Không thể xóa nguyên liệu này vì nó đang được dùng trực tiếp trong một Món ăn!' });
+        }
+
         await db.query('DELETE FROM materials WHERE id = ?', [id]);
         res.json({ message: 'Material deleted successfully' });
     } catch (err) {
         if (err.code === 'ER_ROW_IS_REFERENCED_2') {
-            return res.status(400).json({ error: 'Không thể xóa nguyên liệu này vì nó đang được dùng trong công thức pha chế!' });
+            return res.status(400).json({ error: 'Không thể xóa nguyên liệu này vì nó đang được dùng trong công thức Bán thành phẩm (Prep)!' });
         }
         res.status(500).json({ error: err.message });
     }
