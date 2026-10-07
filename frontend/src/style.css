@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-500: #4A6741;
+  --color-surface: #FAF9F6;
+  --color-textmain: #334155;
+  --font-sans: "Quicksand", sans-serif;
+}
+
+body {
+  @apply bg-surface text-textmain font-sans;
+}
