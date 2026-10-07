@@ -24,7 +24,7 @@ app.use('/api/toppings', toppingRoutes);
 app.use(express.static(path.join(__dirname, '../../frontend/dist')));
 
 // Catch-all route cho Vue Router
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
     res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
 });
 
