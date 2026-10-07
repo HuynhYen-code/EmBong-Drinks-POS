@@ -258,6 +258,9 @@ const saveMenu = async () => {
       alert('Lưu thành công!')
       showModal.value = false
       fetchData() // reload to get new COGS
+    } else {
+      const errData = await res.json()
+      alert('Có lỗi xảy ra: ' + (errData.error || 'Vui lòng thử lại!'))
     }
   } catch (e) {
     alert('Backend lỗi hoặc chưa chạy. Hãy mở Backend lên để dùng lưu thật.')

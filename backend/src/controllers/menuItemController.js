@@ -98,11 +98,11 @@ exports.create = async (req, res) => {
             }
         }
         
-        // 4. Calculate COGS
-        await recalculateMenuItemCogs(sizeId);
-
         await connection.commit();
         connection.release();
+
+        // 4. Calculate COGS (do this AFTER commit to prevent Deadlock)
+        await recalculateMenuItemCogs(sizeId);
 
         res.status(201).json({ id: sizeId, message: 'Menu item size created successfully' });
     } catch (err) {
@@ -145,10 +145,10 @@ exports.update = async (req, res) => {
             }
         }
         
-        await recalculateMenuItemCogs(sizeId);
-
         await connection.commit();
         connection.release();
+
+        await recalculateMenuItemCogs(sizeId);
         res.json({ message: 'Menu item size updated successfully' });
     } catch (err) {
         await connection.rollback();
