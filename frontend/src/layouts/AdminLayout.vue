@@ -20,8 +20,9 @@
     </div>
     <!-- Main Content -->
     <div class="flex-1 flex flex-col h-full overflow-hidden relative">
-      <header class="h-20 bg-white border-b border-gray-200 flex items-center px-10 shadow-sm shrink-0">
+      <header class="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-10 shadow-sm shrink-0">
          <h1 class="text-2xl font-extrabold text-textmain">Trang Quản Trị Hệ Thống</h1>
+         <button @click="logout" class="bg-red-50 text-red-500 font-bold px-4 py-2 rounded-xl hover:bg-red-100 transition">Đăng Xuất</button>
       </header>
       <main class="flex-1 overflow-auto p-10 relative bg-surface">
          <router-view></router-view>
@@ -29,3 +30,14 @@
     </div>
   </div>
 </template>
+
+<script setup>
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+const logout = () => {
+  localStorage.removeItem('adminAuth')
+  router.push('/login')
+}
+</script>
