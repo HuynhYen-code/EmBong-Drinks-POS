@@ -7,7 +7,7 @@ exports.getAll = async (req, res) => {
         // Fetch ingredients for each prep as well
         for (let prep of rows) {
             const [ingredients] = await db.query(`
-                SELECT pi.*, m.name as material_name, m.cost_per_base_unit 
+                SELECT pi.*, m.name, m.cost_per_base_unit, m.base_unit as unit
                 FROM prep_ingredients pi
                 JOIN materials m ON pi.material_id = m.id
                 WHERE pi.prep_id = ?

@@ -21,8 +21,8 @@
         <tr v-for="prep in preps" :key="prep.id" class="border-b border-gray-50 hover:bg-gray-50/50">
           <td class="py-4 font-bold text-textmain">{{ prep.name }}</td>
           <td class="py-4 text-sm text-gray-500">
-             <div v-for="ing in prep.ingredients" :key="ing.name">
-               • {{ ing.qty }} {{ ing.unit }} {{ ing.name }}
+             <div v-for="(ing, idx) in prep.ingredients" :key="idx">
+               • {{ ing.quantity }} {{ ing.unit }} {{ ing.name }}
              </div>
           </td>
           <td class="py-4 font-semibold text-gray-700">{{ prep.yield_quantity }} {{ prep.base_unit }}</td>
