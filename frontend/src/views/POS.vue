@@ -191,27 +191,16 @@ onMounted(async () => {
         menuItems.value = data.menu_items
         toppings.value = data.toppings
     } else {
-        loadMockData()
+        alert('Lỗi lấy dữ liệu từ Backend. Kiểm tra link Render.')
     }
   } catch (error) {
     console.error('Error fetching data:', error)
-    loadMockData()
+    alert('Không thể kết nối đến Backend: ' + (import.meta.env.VITE_API_URL || 'http://localhost:5000/api'))
   }
 })
 
 const loadMockData = () => {
-  menuItems.value = [
-    { id: 1, category: 'Món Bán Chạy', name: 'Rau má latte', prices_sizes_map: { 'M': 20000, 'L': 25000 }, image_url: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&q=80&w=400' },
-    { id: 2, category: 'Món Bán Chạy', name: 'Olong lài sữa', prices_sizes_map: { 'M': 22000, 'L': 27000 }, image_url: 'https://images.unsplash.com/photo-1517705574632-0a373fc34c67?auto=format&fit=crop&q=80&w=400' },
-    { id: 3, category: 'Món Bán Chạy', name: 'Trà dâu tây tươi', prices_sizes_map: { 'M': 22000, 'L': 28000 }, image_url: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&q=80&w=400' },
-    { id: 4, category: 'Rau Má', name: 'Rau Má Dừa', prices_sizes_map: { '700ml': 16000, '1000ml': 20000 }, image_url: 'https://images.unsplash.com/photo-1626804475297-41609ea005eb?auto=format&fit=crop&q=80&w=400' },
-    { id: 5, category: 'Trái Cây Tô', name: 'Trái Cây Tô Đặc Biệt', prices_sizes_map: { 'Tiêu chuẩn': 35000 }, image_url: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=400' },
-  ]
-  toppings.value = [
-    { id: 1, name: 'Trân châu đen', price: 3000 },
-    { id: 2, name: 'Khúc bạch', price: 5000 },
-    { id: 3, name: 'Sương sáo', price: 4000 }
-  ]
+  // Đã xóa mock data để kiểm tra lỗi thật
 }
 
 const filteredItems = computed(() => {
