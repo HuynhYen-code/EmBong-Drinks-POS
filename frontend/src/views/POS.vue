@@ -8,8 +8,9 @@
         </div>
         <div class="flex gap-4 items-center">
           <router-link to="/admin" class="text-brand-500 font-bold hover:underline mr-4">Trang Quản Trị</router-link>
-          <div class="px-4 py-2 bg-brand-500/10 text-brand-500 rounded-full font-bold text-sm">
-            Ca Sáng - Thu Ngân 1
+          <div class="px-4 py-2 bg-brand-500/10 text-brand-500 rounded-full font-bold text-sm flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span>
+            Quầy Phục Vụ
           </div>
         </div>
       </div>
