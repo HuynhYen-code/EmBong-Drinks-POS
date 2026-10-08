@@ -109,10 +109,11 @@
         </div>
         <button 
           @click="checkout"
-          :disabled="cart.length === 0"
-          class="w-full py-4 bg-brand-500 text-white rounded-[20px] font-bold text-xl hover:opacity-90 transition shadow-lg hover:shadow-xl disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+          :disabled="cart.length === 0 || isCheckingOut"
+          class="w-full py-4 bg-brand-500 text-white rounded-[20px] font-bold text-xl hover:opacity-90 transition shadow-lg hover:shadow-xl disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          Thanh Toán
+          <svg v-if="isCheckingOut" class="animate-spin h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          {{ isCheckingOut ? 'Đang xử lý...' : 'Thanh Toán' }}
         </button>
       </div>
     </div>
@@ -220,6 +221,7 @@ const showModal = ref(false)
 const selectedItem = ref(null)
 const tempSelection = ref({ size: null, price: 0, toppings: [] })
 const isMobileCartOpen = ref(false)
+const isCheckingOut = ref(false)
 
 const cartItemCount = computed(() => {
   return cart.value.reduce((sum, item) => sum + item.quantity, 0)
@@ -309,7 +311,8 @@ const formatPrice = (value) => {
 }
 
 const checkout = async () => {
-  if (cart.value.length === 0) return
+  if (cart.value.length === 0 || isCheckingOut.value) return
+  isCheckingOut.value = true
   
   try {
     const payload = {
@@ -338,6 +341,8 @@ const checkout = async () => {
     console.error('Lỗi thanh toán:', error)
     alert('Thanh toán giả lập thành công! (Do Server Backend chưa bật)')
     cart.value = []
+  } finally {
+    isCheckingOut.value = false
   }
 }
 </script>
