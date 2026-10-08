@@ -113,8 +113,11 @@
               <button @click="addIng" class="bg-gray-800 text-white px-3 py-1 rounded-xl text-sm font-bold">Thêm</button>
             </div>
             <ul class="space-y-1 mt-3">
-              <li v-for="(ing, i) in form.ingredients" :key="i" class="text-sm text-gray-600 flex justify-between bg-gray-50 px-3 py-2 rounded-lg">
-                <span>{{ ing.quantity }} {{ ing.unit }} {{ ing.name }}</span>
+              <li v-for="(ing, i) in form.ingredients" :key="i" class="text-sm text-gray-600 flex justify-between items-center bg-gray-50 px-3 py-2 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <input v-model="ing.quantity" type="number" class="w-16 px-2 py-1 text-center border border-gray-200 rounded text-sm bg-white" min="0" step="0.1" />
+                  <span>{{ ing.unit }} {{ ing.name }}</span>
+                </div>
                 <button @click="form.ingredients.splice(i, 1)" class="text-red-500 font-bold">X</button>
               </li>
             </ul>
