@@ -12,6 +12,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Endpoint kiểm tra sức khỏe và chống ngủ đông (Keep-alive cho UptimeRobot / Cron job)
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.use('/api/materials', materialRoutes);
 app.use('/api/preps', prepRoutes);
 app.use('/api/menu-items', menuItemRoutes);
