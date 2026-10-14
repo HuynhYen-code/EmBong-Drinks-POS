@@ -14,7 +14,14 @@ const pool = mysql.createPool({
     connectionLimit: 10,
     queueLimit: 0,
     decimalNumbers: true,
+    timezone: '+07:00',
     ssl: sslConfig
 });
 
+// Thiết lập múi giờ Việt Nam (UTC+7) cho mọi kết nối tới Database
+pool.on('connection', (connection) => {
+    connection.query("SET time_zone = '+07:00';");
+});
+
 module.exports = pool;
+
