@@ -27,12 +27,20 @@ const path = require('path');
 app.use('/api/toppings', toppingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Phục vụ ứng dụng Vue Frontend từ thư mục dist (sau khi build)
-app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+const fs = require('fs');
 
-// Catch-all route cho Vue Router
-app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
+// Root endpoint (giúp ping trực tiếp URL chính không bị 404)
+app.get('/', (req, res) => {
+    res.json({ status: 'ok', message: 'Em Bong POS Backend is running' });
 });
+
+// Phục vụ ứng dụng Vue Frontend từ thư mục dist (nếu có build cục bộ)
+const distPath = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get(/.*/, (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+}
 
 module.exports = app;
