@@ -1,11 +1,13 @@
 const db = require('../config/db');
 
 exports.create = async (req, res) => {
-    const { cart_items } = req.body; 
+    const { cart_items, payment_method } = req.body; 
     
     if (!cart_items || cart_items.length === 0) {
         return res.status(400).json({ error: 'Cart is empty' });
     }
+
+    const validPaymentMethod = payment_method === 'transfer' ? 'transfer' : 'cash';
 
     const connection = await db.getConnection();
     try {
@@ -65,8 +67,8 @@ exports.create = async (req, res) => {
         }
 
         const [orderResult] = await connection.query(
-            'INSERT INTO orders (total_amount, total_cogs) VALUES (?, ?)',
-            [totalAmount, totalCogs]
+            'INSERT INTO orders (total_amount, total_cogs, payment_method) VALUES (?, ?, ?)',
+            [totalAmount, totalCogs, validPaymentMethod]
         );
         const orderId = orderResult.insertId;
 
@@ -91,7 +93,7 @@ exports.create = async (req, res) => {
         await connection.commit();
         connection.release();
 
-        res.status(201).json({ id: orderId, message: 'Checkout successful' });
+        res.status(201).json({ id: orderId, message: 'Checkout successful', payment_method: validPaymentMethod });
     } catch (err) {
         await connection.rollback();
         connection.release();
@@ -100,15 +102,118 @@ exports.create = async (req, res) => {
 };
 
 exports.getStats = async (req, res) => {
+    const selectedDate = req.query.date; // YYYY-MM-DD
     try {
-        const [revenueData] = await db.query(`
-            SELECT DATE(created_at) as date, SUM(total_amount) as revenue, SUM(total_cogs) as cogs, (SUM(total_amount) - SUM(total_cogs)) as profit
+        // 1. Thống kê 30 ngày gần nhất (Doanh thu, Tiền mặt, Chuyển khoản, COGS, Lợi nhuận)
+        const [dailyRev] = await db.query(`
+            SELECT 
+                DATE_FORMAT(created_at, '%Y-%m-%d') as date,
+                COUNT(id) as total_orders,
+                SUM(total_amount) as revenue,
+                SUM(CASE WHEN payment_method = 'transfer' THEN total_amount ELSE 0 END) as transfer_revenue,
+                SUM(CASE WHEN payment_method = 'transfer' THEN 0 ELSE total_amount END) as cash_revenue,
+                SUM(total_cogs) as cogs,
+                (SUM(total_amount) - SUM(total_cogs)) as profit
             FROM orders
-            GROUP BY DATE(created_at)
-            ORDER BY DATE(created_at) DESC
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+            ORDER BY date DESC
             LIMIT 30
         `);
-        
+
+        // 2. Thống kê số ly bán ra theo ngày (tránh join làm nhân đôi doanh thu)
+        const [dailyCups] = await db.query(`
+            SELECT 
+                DATE_FORMAT(o.created_at, '%Y-%m-%d') as date,
+                SUM(od.quantity) as cups
+            FROM order_details od
+            JOIN orders o ON od.order_id = o.id
+            GROUP BY DATE_FORMAT(o.created_at, '%Y-%m-%d')
+            ORDER BY date DESC
+            LIMIT 30
+        `);
+
+        const cupsMap = {};
+        dailyCups.forEach(row => {
+            cupsMap[row.date] = parseInt(row.cups) || 0;
+        });
+
+        const revenue30Days = dailyRev.map(row => ({
+            date: row.date,
+            total_orders: parseInt(row.total_orders) || 0,
+            revenue: parseFloat(row.revenue) || 0,
+            transfer_revenue: parseFloat(row.transfer_revenue) || 0,
+            cash_revenue: parseFloat(row.cash_revenue) || 0,
+            cogs: parseFloat(row.cogs) || 0,
+            profit: parseFloat(row.profit) || 0,
+            cups: cupsMap[row.date] || 0
+        }));
+
+        // 3. Thống kê tổng hợp trong Tháng này (Month to date)
+        const [monthStats] = await db.query(`
+            SELECT 
+                COUNT(id) as total_orders,
+                COALESCE(SUM(total_amount), 0) as month_revenue,
+                COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN total_amount ELSE 0 END), 0) as month_transfer_revenue,
+                COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN 0 ELSE total_amount END), 0) as month_cash_revenue,
+                COALESCE(SUM(total_cogs), 0) as month_cogs,
+                (COALESCE(SUM(total_amount), 0) - COALESCE(SUM(total_cogs), 0)) as month_profit
+            FROM orders
+            WHERE YEAR(created_at) = YEAR(CURRENT_DATE()) AND MONTH(created_at) = MONTH(CURRENT_DATE())
+        `);
+
+        const [monthCupsData] = await db.query(`
+            SELECT COALESCE(SUM(od.quantity), 0) as month_cups
+            FROM order_details od
+            JOIN orders o ON od.order_id = o.id
+            WHERE YEAR(o.created_at) = YEAR(CURRENT_DATE()) AND MONTH(o.created_at) = MONTH(CURRENT_DATE())
+        `);
+
+        // 4. Chi tiết từng món bán được (Items Breakdown)
+        // Cho cả ngày được chọn (nếu có) và cho tháng này
+        let dateItemsBreakdown = [];
+        if (selectedDate) {
+            const [rows] = await db.query(`
+                SELECT 
+                    m.id as menu_item_id,
+                    m.name,
+                    od.size_name,
+                    SUM(od.quantity) as total_sold,
+                    SUM(od.unit_price * od.quantity) as total_sales,
+                    SUM(od.unit_cogs * od.quantity) as total_cogs
+                FROM order_details od
+                JOIN menu_items m ON od.menu_item_id = m.id
+                JOIN orders o ON od.order_id = o.id
+                WHERE DATE_FORMAT(o.created_at, '%Y-%m-%d') = ?
+                GROUP BY od.menu_item_id, od.size_name
+                ORDER BY total_sold DESC
+            `, [selectedDate]);
+            dateItemsBreakdown = rows.map(r => ({
+                id: r.menu_item_id,
+                name: r.name,
+                size_name: r.size_name,
+                total_sold: parseInt(r.total_sold) || 0,
+                total_sales: parseFloat(r.total_sales) || 0,
+                total_cogs: parseFloat(r.total_cogs) || 0
+            }));
+        }
+
+        const [monthItemsBreakdownRows] = await db.query(`
+            SELECT 
+                m.id as menu_item_id,
+                m.name,
+                od.size_name,
+                SUM(od.quantity) as total_sold,
+                SUM(od.unit_price * od.quantity) as total_sales,
+                SUM(od.unit_cogs * od.quantity) as total_cogs
+            FROM order_details od
+            JOIN menu_items m ON od.menu_item_id = m.id
+            JOIN orders o ON od.order_id = o.id
+            WHERE YEAR(o.created_at) = YEAR(CURRENT_DATE()) AND MONTH(o.created_at) = MONTH(CURRENT_DATE())
+            GROUP BY od.menu_item_id, od.size_name
+            ORDER BY total_sold DESC
+        `);
+
+        // 5. Top 5 món bán chạy nhất mọi thời đại
         const [topItems] = await db.query(`
             SELECT m.name, SUM(od.quantity) as total_sold
             FROM order_details od
@@ -119,8 +224,26 @@ exports.getStats = async (req, res) => {
         `);
         
         res.json({
-            revenue: revenueData,
-            top_items: topItems
+            revenue: revenue30Days,
+            this_month: {
+                total_orders: parseInt(monthStats[0].total_orders) || 0,
+                revenue: parseFloat(monthStats[0].month_revenue) || 0,
+                cash_revenue: parseFloat(monthStats[0].month_cash_revenue) || 0,
+                transfer_revenue: parseFloat(monthStats[0].month_transfer_revenue) || 0,
+                cogs: parseFloat(monthStats[0].month_cogs) || 0,
+                profit: parseFloat(monthStats[0].month_profit) || 0,
+                cups: parseInt(monthCupsData[0].month_cups) || 0
+            },
+            top_items: topItems,
+            date_items_breakdown: dateItemsBreakdown,
+            month_items_breakdown: monthItemsBreakdownRows.map(r => ({
+                id: r.menu_item_id,
+                name: r.name,
+                size_name: r.size_name,
+                total_sold: parseInt(r.total_sold) || 0,
+                total_sales: parseFloat(r.total_sales) || 0,
+                total_cogs: parseFloat(r.total_cogs) || 0
+            }))
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -133,7 +256,7 @@ exports.getDailyHistory = async (req, res) => {
     
     try {
         const [orders] = await db.query(`
-            SELECT id, total_amount, total_cogs, DATE_FORMAT(created_at, '%H:%i:%s') as time
+            SELECT id, total_amount, total_cogs, payment_method, DATE_FORMAT(created_at, '%H:%i:%s') as time
             FROM orders
             WHERE DATE(created_at) = ?
             ORDER BY created_at DESC
@@ -165,6 +288,7 @@ exports.getDailyHistory = async (req, res) => {
                 id: o.id,
                 time: o.time,
                 total_amount: o.total_amount,
+                payment_method: o.payment_method || 'cash',
                 items: oDetails
             };
         });

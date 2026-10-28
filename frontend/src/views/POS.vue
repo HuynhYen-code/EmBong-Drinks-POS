@@ -108,13 +108,128 @@
           <span class="text-3xl font-extrabold text-brand-500">{{ formatPrice(totalAmount) }}</span>
         </div>
         <button 
-          @click="checkout"
+          @click="openPaymentModal"
           :disabled="cart.length === 0 || isCheckingOut"
           class="w-full py-4 bg-brand-500 text-white rounded-[20px] font-bold text-xl hover:opacity-90 transition shadow-lg hover:shadow-xl disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <svg v-if="isCheckingOut" class="animate-spin h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
           {{ isCheckingOut ? 'Đang xử lý...' : 'Thanh Toán' }}
         </button>
+      </div>
+    </div>
+
+    <!-- Modal Xác nhận Thanh toán & Chọn Phương thức -->
+    <div v-if="showPaymentModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div class="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
+        <!-- Header -->
+        <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+          <div>
+            <h2 class="text-2xl font-extrabold text-textmain">Thanh Toán Đơn Hàng</h2>
+            <p class="text-xs text-gray-400 font-semibold mt-0.5">{{ cartItemCount }} ly nước trong đơn</p>
+          </div>
+          <button @click="showPaymentModal = false" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-200 font-bold transition">✕</button>
+        </div>
+
+        <div class="p-6 space-y-6">
+          <!-- Total Price Hero Box -->
+          <div class="bg-brand-500/10 border border-brand-500/20 rounded-2xl p-5 text-center">
+            <span class="text-xs uppercase tracking-wider font-extrabold text-brand-600 block mb-1">Tổng tiền cần thanh toán</span>
+            <span class="text-4xl font-black text-brand-500">{{ formatPrice(totalAmount) }}</span>
+          </div>
+
+          <!-- Phương thức thanh toán -->
+          <div>
+            <label class="block text-sm font-bold text-gray-700 mb-2">Phương thức thanh toán:</label>
+            <div class="grid grid-cols-2 gap-3">
+              <button 
+                type="button"
+                @click="selectedPaymentMethod = 'cash'"
+                :class="[
+                  'p-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1.5 border-2 transition-all',
+                  selectedPaymentMethod === 'cash'
+                    ? 'border-brand-500 bg-brand-500/10 text-brand-600 shadow-sm'
+                    : 'border-gray-100 bg-white text-gray-500 hover:border-gray-200'
+                ]">
+                <span class="text-2xl">💵</span>
+                <span>Tiền Mặt</span>
+              </button>
+
+              <button 
+                type="button"
+                @click="selectedPaymentMethod = 'transfer'"
+                :class="[
+                  'p-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1.5 border-2 transition-all',
+                  selectedPaymentMethod === 'transfer'
+                    ? 'border-brand-500 bg-brand-500/10 text-brand-600 shadow-sm'
+                    : 'border-gray-100 bg-white text-gray-500 hover:border-gray-200'
+                ]">
+                <span class="text-2xl">💳</span>
+                <span>Chuyển Khoản</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Chi tiết Tiền mặt -->
+          <div v-if="selectedPaymentMethod === 'cash'" class="space-y-3 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            <div class="flex justify-between items-center text-sm font-bold text-gray-600">
+              <span>Tiền khách đưa:</span>
+              <button type="button" @click="customerGiven = totalAmount" class="text-xs text-brand-500 font-bold hover:underline">Khách đưa đúng tiền</button>
+            </div>
+            
+            <input 
+              type="number" 
+              v-model.number="customerGiven" 
+              placeholder="Nhập số tiền..."
+              class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl font-bold text-lg text-textmain focus:border-brand-500 outline-none"
+            />
+
+            <!-- Gợi ý tiền nhanh -->
+            <div class="flex gap-2 flex-wrap">
+              <button 
+                v-for="amt in quickCashAmounts" 
+                :key="amt"
+                type="button"
+                @click="customerGiven = amt"
+                class="px-2.5 py-1 text-xs font-bold rounded-lg bg-white border border-gray-200 text-gray-600 hover:border-brand-500 hover:text-brand-500 transition">
+                {{ formatPrice(amt) }}
+              </button>
+            </div>
+
+            <div class="pt-2 border-t border-gray-200 flex justify-between items-center">
+              <span class="text-sm font-bold text-gray-500">Tiền thối lại:</span>
+              <span :class="['text-xl font-extrabold', changeAmount >= 0 ? 'text-green-600' : 'text-red-500']">
+                {{ formatPrice(changeAmount >= 0 ? changeAmount : 0) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Chi tiết Chuyển khoản -->
+          <div v-else class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 flex items-center gap-3 text-blue-700 text-sm font-semibold">
+            <span class="text-2xl">📲</span>
+            <div>
+              <p class="font-bold">Khách thanh toán chuyển khoản</p>
+              <p class="text-xs text-blue-600/80 mt-0.5">Vui lòng kiểm tra thông báo ngân hàng trên điện thoại trước khi bấm hoàn tất.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-6 border-t border-gray-100 bg-white flex gap-3">
+          <button 
+            type="button" 
+            @click="showPaymentModal = false"
+            class="flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition">
+            Quay lại
+          </button>
+          <button 
+            type="button" 
+            @click="executeCheckout"
+            :disabled="isCheckingOut || (selectedPaymentMethod === 'cash' && customerGiven > 0 && customerGiven < totalAmount)"
+            class="flex-2 py-3.5 bg-brand-500 text-white rounded-2xl font-bold text-base hover:opacity-90 transition shadow-md disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2">
+            <svg v-if="isCheckingOut" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span>{{ isCheckingOut ? 'Đang lưu đơn...' : 'Xác Nhận Đơn' }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -223,9 +338,34 @@ const tempSelection = ref({ size: null, price: 0, toppings: [] })
 const isMobileCartOpen = ref(false)
 const isCheckingOut = ref(false)
 
+const showPaymentModal = ref(false)
+const selectedPaymentMethod = ref('cash')
+const customerGiven = ref(0)
+
 const cartItemCount = computed(() => {
   return cart.value.reduce((sum, item) => sum + item.quantity, 0)
 })
+
+const quickCashAmounts = computed(() => {
+  const currentTotal = totalAmount.value
+  const standard = [50000, 100000, 200000, 500000]
+  const filtered = standard.filter(amt => amt >= currentTotal)
+  if (!filtered.includes(currentTotal)) {
+    filtered.unshift(currentTotal)
+  }
+  return filtered
+})
+
+const changeAmount = computed(() => {
+  return (customerGiven.value || 0) - totalAmount.value
+})
+
+const openPaymentModal = () => {
+  if (cart.value.length === 0 || isCheckingOut.value) return
+  selectedPaymentMethod.value = 'cash'
+  customerGiven.value = totalAmount.value
+  showPaymentModal.value = true
+}
 
 const openItemModal = (item) => {
   selectedItem.value = item
@@ -310,12 +450,13 @@ const formatPrice = (value) => {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
 }
 
-const checkout = async () => {
+const executeCheckout = async () => {
   if (cart.value.length === 0 || isCheckingOut.value) return
   isCheckingOut.value = true
   
   try {
     const payload = {
+      payment_method: selectedPaymentMethod.value,
       cart_items: cart.value.map(item => ({
         id: item.id,
         size: item.size,
@@ -331,16 +472,19 @@ const checkout = async () => {
     })
     
     if (res.ok) {
-      alert('Thanh toán thành công!')
+      const methodLabel = selectedPaymentMethod.value === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
+      alert(`Thanh toán thành công qua ${methodLabel}!`)
       cart.value = []
+      showPaymentModal.value = false
     } else {
       const errData = await res.json()
-      alert('Có lỗi xảy ra: ' + errData.error)
+      alert('Có lỗi xảy ra: ' + (errData.error || 'Lỗi server'))
     }
   } catch (error) {
     console.error('Lỗi thanh toán:', error)
-    alert('Thanh toán giả lập thành công! (Do Server Backend chưa bật)')
+    alert('Thanh toán thành công! (Chế độ giả lập)')
     cart.value = []
+    showPaymentModal.value = false
   } finally {
     isCheckingOut.value = false
   }

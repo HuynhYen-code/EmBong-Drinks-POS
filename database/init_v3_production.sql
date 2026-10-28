@@ -81,6 +81,7 @@ CREATE TABLE orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     total_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
     total_cogs DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -105,6 +106,25 @@ CREATE TABLE order_detail_toppings (
     unit_cogs DECIMAL(12, 2) NOT NULL,
     FOREIGN KEY (order_detail_id) REFERENCES order_details(id) ON DELETE CASCADE,
     FOREIGN KEY (topping_id) REFERENCES toppings(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE daily_cash (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    date DATE NOT NULL UNIQUE,
+    initial_cash DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    actual_ending_cash DECIMAL(12, 2) DEFAULT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE expenses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    date DATE NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Không có bất kỳ dữ liệu mẫu (Mock data) nào ở đây.

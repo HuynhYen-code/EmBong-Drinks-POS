@@ -24,8 +24,13 @@ app.use('/api/orders', orderRoutes);
 const uploadRoutes = require('./routes/uploadRoutes');
 const path = require('path');
 
+const cashDrawerRoutes = require('./routes/cashDrawerRoutes');
+const expenseRoutes = require('./routes/expenseRoutes');
+
 app.use('/api/toppings', toppingRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/cash-drawer', cashDrawerRoutes);
+app.use('/api/expenses', expenseRoutes);
 
 const fs = require('fs');
 

@@ -7,6 +7,7 @@ import Preps from '../views/admin/Preps.vue'
 import MenuItems from '../views/admin/MenuItems.vue'
 import Toppings from '../views/admin/Toppings.vue'
 import Stocktake from '../views/admin/Stocktake.vue'
+import Expenses from '../views/admin/Expenses.vue'
 
 import Login from '../views/Login.vue'
 
@@ -26,6 +27,7 @@ const routes = [
       { path: 'menu', component: MenuItems },
       { path: 'toppings', component: Toppings },
       { path: 'stocktake', component: Stocktake },
+      { path: 'expenses', component: Expenses },
     ]
   }
 ]

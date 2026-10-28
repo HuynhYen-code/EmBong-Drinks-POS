@@ -19,6 +19,7 @@
         <router-link @click="isSidebarOpen = false" to="/admin/menu" class="block px-5 py-4 rounded-2xl text-gray-600 hover:bg-brand-500/10 hover:text-brand-500 font-bold transition-all" active-class="bg-brand-500/10 text-brand-500 border border-brand-500/20">3. Quản Lý Menu</router-link>
         <router-link @click="isSidebarOpen = false" to="/admin/toppings" class="block px-5 py-4 rounded-2xl text-gray-600 hover:bg-brand-500/10 hover:text-brand-500 font-bold transition-all" active-class="bg-brand-500/10 text-brand-500 border border-brand-500/20">4. Quản Lý Topping</router-link>
         <router-link @click="isSidebarOpen = false" to="/admin/stocktake" class="block px-5 py-4 rounded-2xl text-gray-600 hover:bg-brand-500/10 hover:text-brand-500 font-bold transition-all" active-class="bg-brand-500/10 text-brand-500 border border-brand-500/20">5. Kiểm Kê Kho</router-link>
+        <router-link @click="isSidebarOpen = false" to="/admin/expenses" class="block px-5 py-4 rounded-2xl text-gray-600 hover:bg-brand-500/10 hover:text-brand-500 font-bold transition-all" active-class="bg-brand-500/10 text-brand-500 border border-brand-500/20">6. Sổ Thu Chi & Két Tiền</router-link>
         
         <div class="pt-8 mt-8 border-t border-gray-100">
            <router-link to="/pos" class="block px-5 py-4 rounded-2xl text-gray-600 hover:bg-gray-100 hover:text-textmain font-bold transition-all">⬅ Về Màn Hình POS</router-link>
