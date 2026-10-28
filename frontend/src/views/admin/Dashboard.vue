@@ -421,8 +421,40 @@ const currentChartMode = ref('revenue')
 
 const breakdownScope = ref('date')
 
-const topItems = ref([])
-const chartData = ref([])
+const rawRevenueData = ref([])
+
+const chartData = computed(() => {
+    if (!rawRevenueData.value || rawRevenueData.value.length === 0) return []
+    const sortedRev = [...rawRevenueData.value].sort((a, b) => a.date.localeCompare(b.date))
+    
+    let maxVal = 1
+    if (currentChartMode.value === 'cups') {
+        maxVal = Math.max(...sortedRev.map(r => r.cups)) || 1
+    } else if (currentChartMode.value === 'profit') {
+        maxVal = Math.max(...sortedRev.map(r => r.profit)) || 1
+    } else {
+        maxVal = Math.max(...sortedRev.map(r => r.revenue)) || 1
+    }
+
+    return sortedRev.map(r => {
+        const [y, m, d] = r.date.split('-')
+        let curVal = r.revenue
+        if (currentChartMode.value === 'cups') curVal = r.cups
+        else if (currentChartMode.value === 'profit') curVal = r.profit
+
+        return {
+            fullDate: r.date,
+            label: `${d}/${m}`,
+            revenue: r.revenue,
+            cash_revenue: r.cash_revenue,
+            transfer_revenue: r.transfer_revenue,
+            cups: r.cups,
+            profit: r.profit,
+            percent: Math.min(100, Math.round((curVal / maxVal) * 100))
+        }
+    })
+})
+
 const todayStats = ref({ revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0 })
 const monthStats = ref({ revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0, total_orders: 0 })
 const dateItemsBreakdown = ref([])
@@ -447,57 +479,17 @@ const fetchData = async () => {
             monthStats.value = data.this_month || { revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0, total_orders: 0 }
             dateItemsBreakdown.value = data.date_items_breakdown || []
             monthItemsBreakdown.value = data.month_items_breakdown || []
+            rawRevenueData.value = data.revenue || []
 
-            if (data.revenue && data.revenue.length > 0) {
-                // Sắp xếp ngày từ cũ đến mới cho biểu đồ
-                const sortedRev = [...data.revenue].sort((a, b) => a.date.localeCompare(b.date))
-                
-                // Tìm giá trị max tùy theo chế độ xem
-                let maxVal = 1
-                if (currentChartMode.value === 'cups') {
-                    maxVal = Math.max(...sortedRev.map(r => r.cups)) || 1
-                } else if (currentChartMode.value === 'profit') {
-                    maxVal = Math.max(...sortedRev.map(r => r.profit)) || 1
-                } else {
-                    maxVal = Math.max(...sortedRev.map(r => r.revenue)) || 1
-                }
-
-                chartData.value = sortedRev.map(r => {
-                    const [y, m, d] = r.date.split('-')
-                    let curVal = r.revenue
-                    if (currentChartMode.value === 'cups') curVal = r.cups
-                    else if (currentChartMode.value === 'profit') curVal = r.profit
-
-                    return {
-                        fullDate: r.date,
-                        label: `${d}/${m}`,
-                        revenue: r.revenue,
-                        cash_revenue: r.cash_revenue,
-                        transfer_revenue: r.transfer_revenue,
-                        cups: r.cups,
-                        profit: r.profit,
-                        percent: Math.min(100, Math.round((curVal / maxVal) * 100))
-                    }
-                })
-
-                // Tìm dữ liệu của ngày đang chọn
-                const match = data.revenue.find(r => r.date === selectedDate.value)
-                if (match) {
-                    todayStats.value = {
-                        revenue: match.revenue,
-                        cash_revenue: match.cash_revenue,
-                        transfer_revenue: match.transfer_revenue,
-                        cogs: match.cogs,
-                        profit: match.profit,
-                        cups: match.cups
-                    }
-                } else {
-                    todayStats.value = { revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0 }
-                }
+            // Gán dữ liệu của ngày đang chọn
+            if (data.selected_day) {
+                todayStats.value = data.selected_day
             } else {
-                chartData.value = []
                 todayStats.value = { revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0 }
             }
+        } else {
+            rawRevenueData.value = []
+            todayStats.value = { revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0 }
         }
 
         // 2. Lấy thông tin két tiền ngày được chọn
