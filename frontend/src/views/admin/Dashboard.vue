@@ -455,6 +455,7 @@ const chartData = computed(() => {
     })
 })
 
+const topItems = ref([])
 const todayStats = ref({ revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0 })
 const monthStats = ref({ revenue: 0, cash_revenue: 0, transfer_revenue: 0, cogs: 0, profit: 0, cups: 0, total_orders: 0 })
 const dateItemsBreakdown = ref([])
