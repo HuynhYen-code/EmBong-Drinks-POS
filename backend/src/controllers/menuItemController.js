@@ -360,3 +360,88 @@ exports.deleteItem = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+
+exports.migrateCategories = async (req, res) => {
+    try {
+        // 1. Cà phê & Cacao -> "Cà Phê - Cacao"
+        await db.query(`
+            UPDATE menu_items 
+            SET category = 'Cà Phê - Cacao'
+            WHERE category IN ('Cà Phê', 'Cà phê', 'Ca phe', 'Cafe', 'cà phê', 'ca phe')
+               OR LOWER(name) LIKE '%cà phê%' 
+               OR LOWER(name) LIKE '%ca phe%' 
+               OR LOWER(name) LIKE '%cacao%' 
+               OR LOWER(name) LIKE '%ca cao%' 
+               OR LOWER(name) LIKE '%bạc xỉu%' 
+               OR LOWER(name) LIKE '%bac xiu%'
+        `);
+
+        // 2. Trà trái cây -> "Trà Trái Cây" (các món trà kết hợp trái cây)
+        await db.query(`
+            UPDATE menu_items 
+            SET category = 'Trà Trái Cây'
+            WHERE (
+                category IN ('Trà / Trà Sữa', 'Trà / Trà sữa', 'Trà/Trà Sữa', 'Trà/Trà sữa', 'Trà', 'Khác')
+                OR category LIKE '%Trà%'
+            )
+            AND (
+                LOWER(name) LIKE '%trà đào%' 
+                OR LOWER(name) LIKE '%tra dao%'
+                OR LOWER(name) LIKE '%trà dâu%' 
+                OR LOWER(name) LIKE '%tra dau%'
+                OR LOWER(name) LIKE '%trà nho%' 
+                OR LOWER(name) LIKE '%tra nho%'
+                OR LOWER(name) LIKE '%trà kiwi%' 
+                OR LOWER(name) LIKE '%tra kiwi%'
+                OR LOWER(name) LIKE '%trà ổi%' 
+                OR LOWER(name) LIKE '%tra oi%'
+                OR LOWER(name) LIKE '%trà chanh%' 
+                OR LOWER(name) LIKE '%tra chanh%'
+                OR LOWER(name) LIKE '%trà tắc%' 
+                OR LOWER(name) LIKE '%tra tac%'
+                OR LOWER(name) LIKE '%trà việt quất%' 
+                OR LOWER(name) LIKE '%tra viet quat%'
+                OR LOWER(name) LIKE '%trà mãng cầu%' 
+                OR LOWER(name) LIKE '%tra mang cau%'
+                OR LOWER(name) LIKE '%trà vải%' 
+                OR LOWER(name) LIKE '%tra vai%'
+                OR LOWER(name) LIKE '%trà xoài%' 
+                OR LOWER(name) LIKE '%tra xoai%'
+                OR LOWER(name) LIKE '%trà bưởi%' 
+                OR LOWER(name) LIKE '%tra buoi%'
+                OR LOWER(name) LIKE '%trà thơm%' 
+                OR LOWER(name) LIKE '%trà dứa%' 
+                OR LOWER(name) LIKE '%trà táo%' 
+                OR LOWER(name) LIKE '%trà lựu%' 
+                OR LOWER(name) LIKE '%trà dưa lưới%' 
+                OR LOWER(name) LIKE '%trà thanh long%' 
+                OR LOWER(name) LIKE '%trà sen%' 
+                OR LOWER(name) LIKE '%trà trái cây%' 
+                OR LOWER(name) LIKE '%trà hoa quả%'
+            )
+            AND LOWER(name) NOT LIKE '%sữa%'
+            AND LOWER(name) NOT LIKE '%sua%'
+            AND LOWER(name) NOT LIKE '%latte%'
+        `);
+
+        // 3. Đổi phân loại cũ 'Trà / Trà Sữa' còn lại sang 'Trà Sữa - Sữa Tươi'
+        await db.query(`
+            UPDATE menu_items 
+            SET category = 'Trà Sữa - Sữa Tươi'
+            WHERE category IN ('Trà / Trà Sữa', 'Trà / Trà sữa', 'Trà/Trà Sữa', 'Trà/Trà sữa', 'Trà Sữa', 'Trà sữa', 'Sữa tươi', 'Sua tuoi')
+        `);
+
+        // 4. Các món trà sữa / sữa tươi cụ thể (như Olong lài sữa, Sữa tươi trân châu đường đen, Sữa dừa sương sáo)
+        await db.query(`
+            UPDATE menu_items 
+            SET category = 'Trà Sữa - Sữa Tươi'
+            WHERE (LOWER(name) LIKE '%olong lài sữa%' OR LOWER(name) LIKE '%sữa tươi trân châu%' OR LOWER(name) LIKE '%sữa dừa sương sáo%')
+              AND category NOT IN ('Trà Sữa - Sữa Tươi')
+        `);
+
+        const [items] = await db.query('SELECT id, name, category FROM menu_items WHERE is_active = 1 ORDER BY category ASC, id DESC');
+        res.json({ message: 'Cập nhật phân loại thành công', items });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};

@@ -158,10 +158,10 @@ export const VIETQR_BANKS = [
 export const DEFAULT_MENU_CATEGORIES = [
   'Món Bán Chạy',
   'Rau Má',
-  'Trà / Trà Sữa',
+  'Trà Sữa - Sữa Tươi',
   'Trà Trái Cây',
+  'Cà Phê - Cacao',
   'Trái Cây Tô',
-  'Cà Phê',
   'Khác'
 ]
 

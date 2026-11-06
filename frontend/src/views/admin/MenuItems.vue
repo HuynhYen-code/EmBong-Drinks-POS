@@ -207,17 +207,35 @@
             </div>
 
             <div>
-              <label class="block text-xs font-bold text-gray-600 mb-1">Phân Loại (Chọn hoặc tự nhập nhóm mới)</label>
+              <label class="block text-xs font-bold text-gray-600 mb-1">Phân Loại (Chọn nhanh hoặc tự nhập)</label>
               <input
                 v-model="form.category"
                 list="menu-category-options"
                 type="text"
                 class="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm font-bold focus:border-brand-500 outline-none"
-                placeholder="VD: Trà / Trà Sữa"
+                placeholder="VD: Trà Sữa - Sữa Tươi, Cà Phê - Cacao"
               />
               <datalist id="menu-category-options">
                 <option v-for="c in allCategorySuggestions" :key="c" :value="c" />
               </datalist>
+
+              <!-- Quick category chips -->
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <button
+                  type="button"
+                  v-for="catOpt in ['Rau Má', 'Trà Sữa - Sữa Tươi', 'Trà Trái Cây', 'Cà Phê - Cacao', 'Món Bán Chạy', 'Trái Cây Tô', 'Khác']"
+                  :key="catOpt"
+                  @click="form.category = catOpt"
+                  :class="[
+                    'px-2.5 py-1 rounded-lg text-xs font-bold transition-all',
+                    form.category === catOpt
+                      ? 'bg-brand-500 text-white shadow-2xs'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ]"
+                >
+                  {{ catOpt }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -476,7 +494,7 @@ const fileInput = ref(null)
 const qtyInputRef = ref(null)
 const isUploading = ref(false)
 
-const form = ref({ name: '', category: 'Món Bán Chạy', image_url: '', size: '', price: '', ingredients: [] })
+const form = ref({ name: '', category: 'Trà Sữa - Sữa Tươi', image_url: '', size: '', price: '', ingredients: [] })
 
 const ingFilterText = ref('')
 const tempIngKey = ref('')
@@ -659,7 +677,7 @@ const handleFileUpload = async (e) => {
 const openCreate = () => {
   isEditing.value = false
   currentEditId.value = null
-  form.value = { name: '', category: 'Món Bán Chạy', image_url: '', size: '700ml', price: '', ingredients: [] }
+  form.value = { name: '', category: 'Trà Sữa - Sữa Tươi', image_url: '', size: '700ml', price: '', ingredients: [] }
   ingFilterText.value = ''
   tempIngKey.value = ''
   tempIngQty.value = ''

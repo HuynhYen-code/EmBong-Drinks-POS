@@ -416,7 +416,10 @@ const fetchData = async () => {
     const res = await fetch(`${API_BASE}/cash-drawer?date=${selectedDate.value}`)
     if (res.ok) {
       const data = await res.json()
-      cashData.value = data
+      cashData.value = {
+        ...data,
+        expenses: Array.isArray(data.expenses) ? data.expenses : []
+      }
       actualCashInput.value = data.actual_ending_cash !== null ? data.actual_ending_cash : null
       closeNotesInput.value = data.notes || ''
     }

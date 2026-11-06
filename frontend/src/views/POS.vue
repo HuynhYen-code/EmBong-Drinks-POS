@@ -828,7 +828,7 @@ import {
   VIETQR_BANKS
 } from '../utils/helpers'
 
-const POS_CACHE_KEY = 'embong_pos_cache_v2'
+const POS_CACHE_KEY = 'embong_pos_cache_v3'
 
 const menuItems = ref([])
 const toppings = ref([])
@@ -878,13 +878,13 @@ const recipeCategory = ref('Tất Cả')
 
 // Danh sách Category động dựa trên dữ liệu thực tế
 const categories = computed(() => {
-  const baseOrder = ['Tất Cả', 'Món Bán Chạy', 'Rau Má', 'Trà / Trà Sữa', 'Trà Trái Cây', 'Trái Cây Tô', 'Cà Phê']
+  const baseOrder = ['Tất Cả', 'Món Bán Chạy', 'Rau Má', 'Trà Sữa - Sữa Tươi', 'Trà Trái Cây', 'Cà Phê - Cacao', 'Trái Cây Tô']
   const dynamicCats = new Set(baseOrder)
   for (const item of menuItems.value) {
     if (item.category) dynamicCats.add(item.category)
   }
   return Array.from(dynamicCats).filter(cat => {
-    if (cat === 'Tất Cả') return true
+    if (cat === 'Tất Cả' || cat === 'Món Bán Chạy') return true
     return menuItems.value.some(i => i.category === cat)
   })
 })
@@ -958,6 +958,13 @@ const filteredItems = computed(() => {
   }
   if (selectedCategory.value === 'Tất Cả') {
     return menuItems.value
+  }
+  if (selectedCategory.value === 'Món Bán Chạy') {
+    const explicit = menuItems.value.filter(i => i.category === 'Món Bán Chạy')
+    if (explicit.length > 0) return explicit
+    // Nếu chưa gán món nào vào Món Bán Chạy, hiển thị các món đắt khách phổ biến
+    const popularKeywords = ['truyền thống', 'đậu', 'dừa', 'dâu', 'olong', 'cà phê']
+    return menuItems.value.filter(i => popularKeywords.some(kw => (i.name || '').toLowerCase().includes(kw)))
   }
   return menuItems.value.filter(i => i.category === selectedCategory.value)
 })

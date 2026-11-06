@@ -392,7 +392,7 @@
 
             <ul class="space-y-2 mb-3">
               <li
-                v-for="(item, idx) in (order.isExpanded ? order.items : order.items.slice(0, 3))"
+                v-for="(item, idx) in (order.isExpanded ? (order.items || []) : (order.items || []).slice(0, 3))"
                 :key="idx"
                 class="text-xs text-gray-700 space-y-0.5"
               >
@@ -420,9 +420,9 @@
               </li>
             </ul>
 
-            <div v-if="order.items.length > 3" class="text-center mb-2">
+            <div v-if="(order.items || []).length > 3" class="text-center mb-2">
               <button @click="order.isExpanded = !order.isExpanded" class="text-xs font-bold text-brand-600 bg-brand-50 px-3 py-1 rounded-full">
-                {{ order.isExpanded ? 'Thu gọn' : `Xem thêm ${order.items.length - 3} món` }}
+                {{ order.isExpanded ? 'Thu gọn' : `Xem thêm ${(order.items || []).length - 3} món` }}
               </button>
             </div>
 
@@ -562,7 +562,9 @@ const fetchData = async () => {
 
     if (resHistory && resHistory.ok) {
       const history = await resHistory.json()
-      historyData.value = history.map(o => ({ ...o, isExpanded: false }))
+      historyData.value = Array.isArray(history)
+        ? history.map(o => ({ ...o, isExpanded: false, items: Array.isArray(o.items) ? o.items : [] }))
+        : []
     } else {
       historyData.value = []
     }
