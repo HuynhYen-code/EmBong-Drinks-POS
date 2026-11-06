@@ -1,12 +1,31 @@
 @import "tailwindcss";
 
 @theme {
+  --color-brand-50: #f3f7f2;
+  --color-brand-100: #e3ece0;
+  --color-brand-200: #c8dac3;
+  --color-brand-300: #a2bf9a;
+  --color-brand-400: #769c6c;
   --color-brand-500: #4A6741;
+  --color-brand-600: #3c5435;
+  --color-brand-700: #31442c;
+  --color-brand-800: #293825;
+  --color-brand-900: #232f20;
   --color-surface: #FAF9F6;
   --color-textmain: #334155;
   --font-sans: "Quicksand", sans-serif;
 }
 
 body {
-  @apply bg-surface text-textmain font-sans;
+  @apply bg-surface text-textmain font-sans antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

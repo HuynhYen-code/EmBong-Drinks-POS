@@ -1,22 +1,22 @@
 const db = require('../config/db');
+const { getVietnamDateStr } = require('../utils/dateHelper');
 
 // Lấy danh sách các khoản chi (theo ngày hoặc theo tháng)
 exports.getAll = async (req, res) => {
     const { date, month } = req.query;
     try {
-        let query = 'SELECT id, date, category, amount, description, DATE_FORMAT(created_at, "%H:%i:%s") as time FROM expenses';
+        let query = 'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, category, amount, description, DATE_FORMAT(created_at, "%H:%i:%s") as time FROM expenses';
         const params = [];
 
         if (date) {
             query += ' WHERE date = ?';
             params.push(date);
         } else if (month) {
-            // month format YYYY-MM
             query += ' WHERE DATE_FORMAT(date, "%Y-%m") = ?';
             params.push(month);
         }
 
-        query += ' ORDER BY id DESC';
+        query += ' ORDER BY date DESC, id DESC';
 
         const [rows] = await db.query(query, params);
         res.json(rows);
@@ -29,11 +29,11 @@ exports.getAll = async (req, res) => {
 exports.create = async (req, res) => {
     const { date, category, amount, description } = req.body;
 
-    if (!category || !amount) {
-        return res.status(400).json({ error: 'Danh mục và số tiền là bắt buộc' });
+    if (!category || !amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: 'Danh mục và số tiền lớn hơn 0 là bắt buộc' });
     }
 
-    const expenseDate = date || new Date().toISOString().slice(0, 10);
+    const expenseDate = date || getVietnamDateStr();
 
     try {
         const [result] = await db.query(
@@ -49,6 +49,33 @@ exports.create = async (req, res) => {
             description: description || '',
             message: 'Đã thêm khoản chi thành công'
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// Sửa khoản chi
+exports.update = async (req, res) => {
+    const { id } = req.params;
+    const { category, amount, description, date } = req.body;
+
+    if (!category || !amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ error: 'Danh mục và số tiền hợp lệ là bắt buộc' });
+    }
+
+    try {
+        if (date) {
+            await db.query(
+                'UPDATE expenses SET date = ?, category = ?, amount = ?, description = ? WHERE id = ?',
+                [date, category, parseFloat(amount), description || '', id]
+            );
+        } else {
+            await db.query(
+                'UPDATE expenses SET category = ?, amount = ?, description = ? WHERE id = ?',
+                [category, parseFloat(amount), description || '', id]
+            );
+        }
+        res.json({ message: 'Đã cập nhật khoản chi thành công' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

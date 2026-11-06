@@ -39,6 +39,7 @@ CREATE TABLE menu_items (
     category VARCHAR(255) NOT NULL DEFAULT 'Khác',
     name VARCHAR(255) NOT NULL,
     image_url VARCHAR(255),
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -49,6 +50,7 @@ CREATE TABLE menu_item_sizes (
     size_name VARCHAR(50) NOT NULL,
     price DECIMAL(12, 2) NOT NULL DEFAULT 0,
     current_cogs DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
     FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE
 );
 
@@ -65,7 +67,8 @@ CREATE TABLE toppings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(12, 2) NOT NULL DEFAULT 0,
-    current_cogs DECIMAL(12, 2) NOT NULL DEFAULT 0
+    current_cogs DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1
 );
 
 CREATE TABLE topping_ingredients (
@@ -79,10 +82,14 @@ CREATE TABLE topping_ingredients (
 
 CREATE TABLE orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    subtotal_amount DECIMAL(12, 2) DEFAULT NULL,
+    discount_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
     total_cogs DECIMAL(12, 2) NOT NULL DEFAULT 0,
     payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    order_note VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_orders_created_at (created_at)
 );
 
 CREATE TABLE order_details (
@@ -93,6 +100,8 @@ CREATE TABLE order_details (
     quantity INT NOT NULL,
     unit_price DECIMAL(12, 2) NOT NULL,
     unit_cogs DECIMAL(12, 2) NOT NULL,
+    note VARCHAR(255) DEFAULT NULL,
+    INDEX idx_order_details_order_id (order_id),
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE RESTRICT
 );
@@ -112,6 +121,7 @@ CREATE TABLE daily_cash (
     id INT AUTO_INCREMENT PRIMARY KEY,
     date DATE NOT NULL UNIQUE,
     initial_cash DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    is_manual_initial TINYINT(1) NOT NULL DEFAULT 0,
     actual_ending_cash DECIMAL(12, 2) DEFAULT NULL,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -124,7 +134,14 @@ CREATE TABLE expenses (
     category VARCHAR(100) NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
     description VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_expenses_date (date)
+);
+
+CREATE TABLE shop_settings (
+    setting_key VARCHAR(100) PRIMARY KEY,
+    setting_value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- Không có bất kỳ dữ liệu mẫu (Mock data) nào ở đây.
