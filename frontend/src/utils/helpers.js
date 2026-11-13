@@ -58,7 +58,7 @@ export function dismissToast(id) {
   toasts.value = toasts.value.filter(t => t.id !== id)
 }
 
-// Hệ thống âm thanh "Cha-Ching! Tiếng Tiền Kêu" thanh toán POS bằng Web Audio API (to, rõ, không cần MP3 ngoài)
+// Hệ thống âm thanh thanh toán POS dùng tệp /pay_sound.mp3 kết hợp khuếch đại Web Audio API (to, rõ khi quán ồn)
 export const isSoundMuted = ref(localStorage.getItem('embong_pos_muted') === 'true')
 
 export function toggleSoundMute() {
@@ -69,7 +69,34 @@ export function toggleSoundMute() {
   }
 }
 
+const PAY_SOUND_URL = '/pay_sound.mp3'
 let sharedAudioCtx = null
+let cachedAudioArrayBuffer = null
+let decodedPayBuffer = null
+let fetchSoundPromise = null
+let decodeSoundPromise = null
+
+export function preloadPaySound() {
+  if (cachedAudioArrayBuffer) return Promise.resolve(cachedAudioArrayBuffer)
+  if (fetchSoundPromise) return fetchSoundPromise
+
+  fetchSoundPromise = fetch(PAY_SOUND_URL, { cache: 'force-cache' })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return res.arrayBuffer()
+    })
+    .then(buf => {
+      cachedAudioArrayBuffer = buf
+      return buf
+    })
+    .catch(err => {
+      fetchSoundPromise = null
+      console.warn('Preload pay_sound failed:', err)
+      return null
+    })
+
+  return fetchSoundPromise
+}
 
 function getOrCreateAudioContext() {
   const AudioCtx = window.AudioContext || window.webkitAudioContext
@@ -83,95 +110,92 @@ function getOrCreateAudioContext() {
   return sharedAudioCtx
 }
 
-// Gọi đồng bộ ngay khi bấm nút thanh toán để mở khóa AudioContext trên iOS/Android trước khi chờ API
+async function ensureDecodedPayBuffer(ctx) {
+  if (decodedPayBuffer) return decodedPayBuffer
+  if (decodeSoundPromise) return decodeSoundPromise
+
+  decodeSoundPromise = (async () => {
+    const rawBuf = await preloadPaySound()
+    if (!rawBuf || !ctx) return null
+    const decoded = await ctx.decodeAudioData(rawBuf.slice(0))
+    decodedPayBuffer = decoded
+    return decoded
+  })().catch(err => {
+    decodeSoundPromise = null
+    console.warn('Decode pay_sound failed:', err)
+    return null
+  })
+
+  return decodeSoundPromise
+}
+
+// Gọi đồng bộ ngay khi bấm nút thanh toán để mở khóa AudioContext & giải mã sẵn file MP3 trên iOS/Android
 export function unlockCheckoutAudio() {
   if (isSoundMuted.value) return
   try {
-    getOrCreateAudioContext()
+    const ctx = getOrCreateAudioContext()
+    if (ctx) {
+      ensureDecodedPayBuffer(ctx)
+    } else {
+      preloadPaySound()
+    }
   } catch (e) {}
 }
 
-export function playCheckoutSound(force = false) {
+function playFallbackHtmlAudio() {
+  try {
+    const audio = new Audio(PAY_SOUND_URL)
+    audio.volume = 1.0
+    audio.play().catch(() => {})
+  } catch (e) {}
+}
+
+export async function playCheckoutSound(force = false) {
   if (isSoundMuted.value && !force) return
   try {
     const ctx = getOrCreateAudioContext()
-    if (!ctx) return
+    if (!ctx) {
+      playFallbackHtmlAudio()
+      return
+    }
+
+    const buffer = await ensureDecodedPayBuffer(ctx)
+    if (!buffer) {
+      playFallbackHtmlAudio()
+      return
+    }
+
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {})
+    }
 
     const now = ctx.currentTime
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
 
-    // Compressor + Master Gain giúp âm thanh TO, ĐANH và RÕ trong môi trường quán ồn mà không bị rè
-    const compressor = ctx.createDynamicsCompressor()
-    compressor.threshold.setValueAtTime(-12, now)
-    compressor.knee.setValueAtTime(12, now)
-    compressor.ratio.setValueAtTime(6, now)
-    compressor.attack.setValueAtTime(0.002, now)
-    compressor.release.setValueAtTime(0.15, now)
+    // Khuếch đại âm lượng x2.8 lần (~ +9dB) qua bộ nén DynamicsCompressor để phát thật TO & RÕ trong quán ồn mà không bị rè vỡ tiếng
+    const boostGain = ctx.createGain()
+    boostGain.gain.setValueAtTime(2.8, now)
+
+    const limiter = ctx.createDynamicsCompressor()
+    limiter.threshold.setValueAtTime(-10, now)
+    limiter.knee.setValueAtTime(10, now)
+    limiter.ratio.setValueAtTime(12, now)
+    limiter.attack.setValueAtTime(0.002, now)
+    limiter.release.setValueAtTime(0.12, now)
 
     const masterGain = ctx.createGain()
-    masterGain.gain.setValueAtTime(0.95, now)
+    masterGain.gain.setValueAtTime(1.0, now)
 
-    compressor.connect(masterGain)
+    source.connect(boostGain)
+    boostGain.connect(limiter)
+    limiter.connect(masterGain)
     masterGain.connect(ctx.destination)
 
-    // 1. Tiếng bật chốt ngăn kéo két tiền ("Ka-")
-    const bufferSize = Math.floor(ctx.sampleRate * 0.035)
-    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-    const data = noiseBuffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25))
-    }
-    const noiseSrc = ctx.createBufferSource()
-    noiseSrc.buffer = noiseBuffer
-
-    const bandpass = ctx.createBiquadFilter()
-    bandpass.type = 'bandpass'
-    bandpass.frequency.setValueAtTime(2600, now)
-    bandpass.Q.setValueAtTime(1.8, now)
-
-    const latchGain = ctx.createGain()
-    latchGain.gain.setValueAtTime(0.9, now)
-    latchGain.gain.exponentialRampToValueAtTime(0.01, now + 0.035)
-
-    noiseSrc.connect(bandpass)
-    bandpass.connect(latchGain)
-    latchGain.connect(compressor)
-    noiseSrc.start(now)
-
-    // Hàm phát tiếng kim loại / đồng xu / chuông máy tính tiền với hòa âm kim loại sắc nét
-    const playMetallicHit = (baseFreq, startTime, duration, volume) => {
-      const partials = [
-        { ratio: 1.0, amp: 1.0, dec: 1.0 },
-        { ratio: 2.0, amp: 0.65, dec: 0.85 },
-        { ratio: 2.756, amp: 0.45, dec: 0.65 },
-        { ratio: 4.12, amp: 0.3, dec: 0.45 }
-      ]
-      for (const p of partials) {
-        const osc = ctx.createOscillator()
-        const g = ctx.createGain()
-        osc.type = p.ratio === 1.0 ? 'triangle' : 'sine'
-        osc.frequency.setValueAtTime(baseFreq * p.ratio, startTime)
-
-        g.gain.setValueAtTime(0.0001, startTime)
-        g.gain.linearRampToValueAtTime(volume * p.amp, startTime + 0.004)
-        g.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * p.dec)
-
-        osc.connect(g)
-        g.connect(compressor)
-        osc.start(startTime)
-        osc.stop(startTime + duration * p.dec + 0.02)
-      }
-    }
-
-    // 2. Tiếng chuông két tiền "-CHING!" đanh & vang
-    playMetallicHit(1567.98, now + 0.03, 0.22, 0.48) // G6 bật lên
-    playMetallicHit(2093.0, now + 0.09, 0.55, 0.65)  // C7 vang ngân
-
-    // 3. Chuỗi tiếng đồng xu leng keng ("keng - keng - keng!")
-    playMetallicHit(3135.96, now + 0.17, 0.24, 0.35) // G7 coin 1
-    playMetallicHit(3951.07, now + 0.23, 0.28, 0.32) // B7 coin 2
-    playMetallicHit(4186.01, now + 0.30, 0.42, 0.38) // C8 coin 3
+    source.start(now)
   } catch (e) {
-    console.warn('Audio playback skipped:', e)
+    console.warn('Web Audio playback fallback:', e)
+    playFallbackHtmlAudio()
   }
 }
 

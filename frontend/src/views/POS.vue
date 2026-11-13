@@ -826,6 +826,7 @@ import {
   showToast,
   isSoundMuted,
   toggleSoundMute,
+  preloadPaySound,
   unlockCheckoutAudio,
   playCheckoutSound,
   QUICK_ITEM_NOTES,
@@ -894,6 +895,7 @@ const categories = computed(() => {
 })
 
 onMounted(async () => {
+  preloadPaySound()
   // 1. Tải tức thì từ bộ nhớ đệm localStorage (0ms) để nhân viên thao tác ngay lập tức
   try {
     const cachedRaw = localStorage.getItem(POS_CACHE_KEY)

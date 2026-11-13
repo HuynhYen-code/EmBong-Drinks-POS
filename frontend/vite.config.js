@@ -7,7 +7,7 @@ export default defineConfig({
     vue(),
     VitePWA({ 
       registerType: 'autoUpdate',
-      includeAssets: ['logo.jpg'],
+      includeAssets: ['logo.jpg', 'pay_sound.mp3'],
       manifest: {
         name: 'Em Bông POS',
         short_name: 'POS',
