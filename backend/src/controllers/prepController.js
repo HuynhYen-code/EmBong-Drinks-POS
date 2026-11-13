@@ -1,8 +1,16 @@
 const db = require('../config/db');
 const { recalculatePrepCost } = require('../utils/costCalculator');
+const { getCache, setCache, invalidateCache } = require('../utils/cache');
+
+const invalidatePrepDependents = () => {
+    invalidateCache('preps_all', 'toppings_all', 'menu_all', 'checkout_catalog');
+};
 
 exports.getAll = async (req, res) => {
     try {
+        const cached = getCache('preps_all');
+        if (cached) return res.json(cached);
+
         const [[preps], [allIngredients]] = await Promise.all([
             db.query('SELECT * FROM preps ORDER BY id DESC'),
             db.query(`
@@ -22,6 +30,7 @@ exports.getAll = async (req, res) => {
             prep.ingredients = ingByPrep[prep.id] || [];
         }
 
+        setCache('preps_all', preps);
         res.json(preps);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -60,6 +69,7 @@ exports.create = async (req, res) => {
         connection.release();
 
         await recalculatePrepCost(prepId);
+        invalidatePrepDependents();
         res.status(201).json({ id: prepId, message: 'Tạo Bán thành phẩm thành công' });
     } catch (err) {
         await connection.rollback();
@@ -99,6 +109,7 @@ exports.update = async (req, res) => {
         connection.release();
 
         await recalculatePrepCost(id);
+        invalidatePrepDependents();
         res.json({ message: 'Cập nhật Bán thành phẩm thành công' });
     } catch (err) {
         await connection.rollback();
@@ -141,6 +152,7 @@ exports.delete = async (req, res) => {
         await db.query('DELETE FROM menu_item_size_ingredients WHERE ingredient_type = "prep" AND ingredient_id = ?', [id]);
         await db.query('DELETE FROM topping_ingredients WHERE ingredient_type = "prep" AND ingredient_id = ?', [id]);
         await db.query('DELETE FROM preps WHERE id = ?', [id]);
+        invalidatePrepDependents();
 
         res.json({ message: 'Đã xóa Bán thành phẩm thành công' });
     } catch (err) {

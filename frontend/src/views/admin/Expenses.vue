@@ -132,10 +132,10 @@
 
           <button
             @click="submitCloseShift"
-            :disabled="actualCashInput === null || actualCashInput === ''"
+            :disabled="isClosingShift || actualCashInput === null || actualCashInput === ''"
             class="w-full py-2.5 bg-brand-500 text-white rounded-xl font-extrabold text-sm hover:bg-brand-600 transition shadow-xs disabled:bg-gray-200 disabled:text-gray-400"
           >
-            Chốt Két Ngày
+            {{ isClosingShift ? 'Đang chốt két...' : 'Chốt Két Ngày' }}
           </button>
         </div>
 
@@ -231,7 +231,7 @@
               :disabled="isSubmittingExpense || !expenseForm.amount"
               class="flex-[2] py-3 bg-brand-500 text-white rounded-xl font-extrabold text-sm hover:bg-brand-600 transition shadow-xs disabled:bg-gray-200"
             >
-              {{ editingExpenseId ? 'Lưu Cập Nhật' : '+ Ghi Nhận Khoản Chi' }}
+              {{ isSubmittingExpense ? 'Đang lưu...' : (editingExpenseId ? 'Lưu Cập Nhật' : '+ Ghi Nhận Khoản Chi') }}
             </button>
           </div>
         </form>
@@ -278,9 +278,10 @@
                 </button>
                 <button
                   @click="deleteExpense(item.id)"
-                  class="px-2.5 py-1 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 text-xs font-bold transition"
+                  :disabled="deletingExpenseId === item.id"
+                  class="px-2.5 py-1 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 text-xs font-bold transition disabled:opacity-50"
                 >
-                  Xóa
+                  {{ deletingExpenseId === item.id ? '...' : 'Xóa' }}
                 </button>
               </div>
             </div>
@@ -315,14 +316,17 @@
           v-if="!cashData.is_auto_rollover"
           type="button"
           @click="resetToAutoRollover"
-          class="w-full py-2 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition"
+          :disabled="isSavingInitial"
+          class="w-full py-2 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition disabled:opacity-50"
         >
           🔄 Đặt lại tự động theo tiền kết két hôm trước
         </button>
 
         <div class="flex gap-2.5">
-          <button type="button" @click="showInitialModal = false" class="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl">Hủy</button>
-          <button type="button" @click="saveInitialCash" class="flex-1 py-2.5 bg-brand-500 text-white font-extrabold rounded-xl">Lưu Số Này</button>
+          <button type="button" @click="showInitialModal = false" :disabled="isSavingInitial" class="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl disabled:opacity-50">Hủy</button>
+          <button type="button" @click="saveInitialCash" :disabled="isSavingInitial" class="flex-1 py-2.5 bg-brand-500 text-white font-extrabold rounded-xl disabled:opacity-50">
+            {{ isSavingInitial ? 'Đang lưu...' : 'Lưu Số Này' }}
+          </button>
         </div>
       </div>
     </div>
@@ -354,8 +358,10 @@
         </div>
 
         <div class="flex gap-2.5">
-          <button type="button" @click="showBankModal = false" class="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl">Đóng</button>
-          <button type="button" @click="saveBankConfig" class="flex-1 py-2.5 bg-brand-500 text-white font-extrabold rounded-xl">Lưu Cấu Hình</button>
+          <button type="button" @click="showBankModal = false" :disabled="isSavingBank" class="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl disabled:opacity-50">Đóng</button>
+          <button type="button" @click="saveBankConfig" :disabled="isSavingBank" class="flex-1 py-2.5 bg-brand-500 text-white font-extrabold rounded-xl disabled:opacity-50">
+            {{ isSavingBank ? 'Đang lưu...' : 'Lưu Cấu Hình' }}
+          </button>
         </div>
       </div>
     </div>
@@ -407,6 +413,10 @@ const expenseForm = ref({
   description: ''
 })
 const isSubmittingExpense = ref(false)
+const isSavingInitial = ref(false)
+const isSavingBank = ref(false)
+const isClosingShift = ref(false)
+const deletingExpenseId = ref(null)
 
 const showBankModal = ref(false)
 const bankForm = ref({ bank_bin: '', bank_short_name: '', account_no: '', account_name: '' })
@@ -449,7 +459,9 @@ const onBankChange = () => {
 }
 
 const saveBankConfig = async () => {
+  if (isSavingBank.value) return
   onBankChange()
+  isSavingBank.value = true
   try {
     const res = await fetch(`${API_BASE}/settings`, {
       method: 'POST',
@@ -462,6 +474,8 @@ const saveBankConfig = async () => {
     }
   } catch (e) {
     showToast('Lỗi lưu cấu hình ngân hàng', 'error')
+  } finally {
+    isSavingBank.value = false
   }
 }
 
@@ -471,6 +485,8 @@ const openInitialCashModal = () => {
 }
 
 const saveInitialCash = async () => {
+  if (isSavingInitial.value) return
+  isSavingInitial.value = true
   try {
     const res = await fetch(`${API_BASE}/cash-drawer/initial`, {
       method: 'POST',
@@ -487,10 +503,14 @@ const saveInitialCash = async () => {
     }
   } catch (err) {
     showToast('Không thể kết nối máy chủ', 'error')
+  } finally {
+    isSavingInitial.value = false
   }
 }
 
 const resetToAutoRollover = async () => {
+  if (isSavingInitial.value) return
+  isSavingInitial.value = true
   try {
     const res = await fetch(`${API_BASE}/cash-drawer/initial`, {
       method: 'POST',
@@ -507,11 +527,14 @@ const resetToAutoRollover = async () => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    isSavingInitial.value = false
   }
 }
 
 const submitCloseShift = async () => {
-  if (actualCashInput.value === null || actualCashInput.value === '') return
+  if (isClosingShift.value || actualCashInput.value === null || actualCashInput.value === '') return
+  isClosingShift.value = true
   try {
     const res = await fetch(`${API_BASE}/cash-drawer/close`, {
       method: 'POST',
@@ -530,6 +553,8 @@ const submitCloseShift = async () => {
     }
   } catch (err) {
     showToast('Không thể kết nối máy chủ', 'error')
+  } finally {
+    isClosingShift.value = false
   }
 }
 
@@ -548,7 +573,7 @@ const cancelEditExpense = () => {
 }
 
 const submitExpense = async () => {
-  if (!expenseForm.value.amount || expenseForm.value.amount <= 0) return
+  if (isSubmittingExpense.value || !expenseForm.value.amount || expenseForm.value.amount <= 0) return
   isSubmittingExpense.value = true
   try {
     const url = editingExpenseId.value
@@ -581,7 +606,9 @@ const submitExpense = async () => {
 }
 
 const deleteExpense = async (id) => {
+  if (deletingExpenseId.value) return
   if (!confirm('Bạn có chắc chắn muốn xóa khoản chi này không?')) return
+  deletingExpenseId.value = id
   try {
     const res = await fetch(`${API_BASE}/expenses/${id}`, { method: 'DELETE' })
     if (res.ok) {
@@ -591,6 +618,8 @@ const deleteExpense = async (id) => {
     }
   } catch (err) {
     showToast('Không thể kết nối máy chủ', 'error')
+  } finally {
+    deletingExpenseId.value = null
   }
 }
 

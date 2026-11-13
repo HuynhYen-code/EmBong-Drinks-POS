@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { getCache, setCache, invalidateCache } = require('../utils/cache');
 
 const DEFAULT_SETTINGS = {
     bank_bin: '',
@@ -11,11 +12,15 @@ const DEFAULT_SETTINGS = {
 
 exports.getSettings = async (req, res) => {
     try {
+        const cached = getCache('settings_all');
+        if (cached) return res.json(cached);
+
         const [rows] = await db.query('SELECT setting_key, setting_value FROM shop_settings');
         const result = { ...DEFAULT_SETTINGS };
         for (const r of rows) {
             result[r.setting_key] = r.setting_value;
         }
+        setCache('settings_all', result, 600000);
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -44,6 +49,7 @@ exports.updateSettings = async (req, res) => {
         }
         await connection.commit();
         connection.release();
+        invalidateCache('settings_all');
         res.json({ message: 'Đã lưu cấu hình cửa hàng thành công' });
     } catch (err) {
         await connection.rollback();

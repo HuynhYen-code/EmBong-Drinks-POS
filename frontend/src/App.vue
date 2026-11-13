@@ -27,7 +27,13 @@
 </template>
 
 <script setup>
-import { toasts, dismissToast } from './utils/helpers'
+import { onMounted } from 'vue'
+import { API_BASE, toasts, dismissToast } from './utils/helpers'
+
+onMounted(() => {
+  // Đánh thức backend ngay khi mở app (giảm thời gian chờ cold start của Render)
+  fetch(`${API_BASE}/health`).catch(() => {})
+})
 </script>
 
 <style>

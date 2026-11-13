@@ -1,106 +1,126 @@
 const db = require('./db');
 
-async function hasColumn(tableName, columnName) {
-    const [cols] = await db.query(
-        `SELECT COLUMN_NAME
-         FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = ?
-           AND COLUMN_NAME = ?`,
-        [tableName, columnName]
-    );
-    return cols.length > 0;
-}
-
-async function ensureColumn(tableName, columnName, definition) {
-    const exists = await hasColumn(tableName, columnName);
-    if (!exists) {
-        console.log(`[Migration] Adding ${tableName}.${columnName}...`);
-        await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-        return true;
-    }
-    return false;
-}
-
-async function ensureIndex(tableName, indexName, columnsDef) {
-    const [idx] = await db.query(
-        `SELECT INDEX_NAME
-         FROM INFORMATION_SCHEMA.STATISTICS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = ?
-           AND INDEX_NAME = ?`,
-        [tableName, indexName]
-    );
-    if (idx.length === 0) {
-        console.log(`[Migration] Adding index ${indexName} on ${tableName}...`);
-        await db.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsDef})`);
-    }
-}
+const CURRENT_SCHEMA_VERSION = '2026_11_13_v1';
 
 async function autoMigrate() {
     try {
-        console.log('[Migration] Checking database schema updates...');
-
-        // 1. Bảng orders: phương thức thanh toán, giảm giá, ghi chú đơn & index thời gian
-        await ensureColumn('orders', 'payment_method', "VARCHAR(20) NOT NULL DEFAULT 'cash'");
-        await ensureColumn('orders', 'subtotal_amount', 'DECIMAL(12, 2) DEFAULT NULL');
-        await ensureColumn('orders', 'discount_amount', 'DECIMAL(12, 2) NOT NULL DEFAULT 0');
-        await ensureColumn('orders', 'order_note', 'VARCHAR(255) DEFAULT NULL');
-        await ensureIndex('orders', 'idx_orders_created_at', 'created_at');
-
-        // 2. Bảng order_details: ghi chú từng món (ít đá, ít ngọt...) & index order_id
-        await ensureColumn('order_details', 'note', 'VARCHAR(255) DEFAULT NULL');
-        await ensureIndex('order_details', 'idx_order_details_order_id', 'order_id');
-
-        // 3. Soft-delete (is_active) cho menu_items, menu_item_sizes, toppings để xóa an toàn không mất lịch sử bill
-        await ensureColumn('menu_items', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
-        await ensureColumn('menu_item_sizes', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
-        await ensureColumn('toppings', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
-
-        // 4. Bảng daily_cash (quản lý tiền trong két theo ngày + cờ nhập tay đầu ngày)
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS daily_cash (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                date DATE NOT NULL UNIQUE,
-                initial_cash DECIMAL(12, 2) NOT NULL DEFAULT 0,
-                is_manual_initial TINYINT(1) NOT NULL DEFAULT 0,
-                actual_ending_cash DECIMAL(12, 2) DEFAULT NULL,
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        `);
-        const addedManualFlag = await ensureColumn('daily_cash', 'is_manual_initial', 'TINYINT(1) NOT NULL DEFAULT 0');
-        if (addedManualFlag) {
-            await db.query('UPDATE daily_cash SET is_manual_initial = 1 WHERE initial_cash > 0');
+        // Kiểm tra nhanh phiên bản migration để tránh chạy 15+ truy vấn INFORMATION_SCHEMA mỗi lần cold start
+        try {
+            const [verRows] = await db.query(
+                "SELECT setting_value FROM shop_settings WHERE setting_key = 'schema_migration_version' LIMIT 1"
+            );
+            if (verRows.length > 0 && verRows[0].setting_value === CURRENT_SCHEMA_VERSION) {
+                console.log('[Migration] Schema already up to date (fast path).');
+                return;
+            }
+        } catch (ignoreErr) {
+            // Bảng shop_settings chưa tồn tại -> chạy migration đầy đủ bên dưới
         }
 
-        // 5. Bảng expenses (quản lý các khoản chi từ két)
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                date DATE NOT NULL,
-                category VARCHAR(100) NOT NULL,
-                amount DECIMAL(12, 2) NOT NULL,
-                description VARCHAR(255),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        await ensureIndex('expenses', 'idx_expenses_date', 'date');
+        console.log('[Migration] Checking database schema updates...');
 
-        // 6. Bảng shop_settings (cấu hình VietQR ngân hàng, danh mục tùy chỉnh...)
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS shop_settings (
-                setting_key VARCHAR(100) PRIMARY KEY,
-                setting_value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        // Đọc toàn bộ metadata bảng, cột, chỉ mục chỉ trong 1 lượt Promise.all
+        const [[tableRows], [colRows], [idxRows]] = await Promise.all([
+            db.query(
+                `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME IN ('daily_cash', 'expenses', 'shop_settings')`
+            ),
+            db.query(
+                `SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME IN ('orders', 'order_details', 'menu_items', 'menu_item_sizes', 'toppings', 'daily_cash')`
+            ),
+            db.query(
+                `SELECT TABLE_NAME, INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME IN ('orders', 'order_details', 'expenses', 'menu_item_sizes')`
             )
-        `);
+        ]);
 
-        // 7. Cập nhật phân loại thực đơn cũ sang phân loại mới theo đúng nghiệp vụ
-        console.log('[Migration] Updating menu item categories to new standard...');
-        
-        // 7.1. Cà phê & Cacao -> "Cà Phê - Cacao"
+        const existingTables = new Set(tableRows.map(r => r.TABLE_NAME));
+        const hasCol = (table, col) => colRows.some(r => r.TABLE_NAME === table && r.COLUMN_NAME === col);
+        const hasIdx = (table, idx) => idxRows.some(r => r.TABLE_NAME === table && r.INDEX_NAME === idx);
+
+        const ensureCol = async (table, col, def) => {
+            if (!hasCol(table, col)) {
+                console.log(`[Migration] Adding ${table}.${col}...`);
+                await db.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+                return true;
+            }
+            return false;
+        };
+
+        const ensureIdx = async (table, idx, colsDef) => {
+            if (!hasIdx(table, idx)) {
+                console.log(`[Migration] Adding index ${idx} on ${table}...`);
+                await db.query(`ALTER TABLE ${table} ADD INDEX ${idx} (${colsDef})`);
+            }
+        };
+
+        // 1. Bảng orders & order_details
+        await ensureCol('orders', 'payment_method', "VARCHAR(20) NOT NULL DEFAULT 'cash'");
+        await ensureCol('orders', 'subtotal_amount', 'DECIMAL(12, 2) DEFAULT NULL');
+        await ensureCol('orders', 'discount_amount', 'DECIMAL(12, 2) NOT NULL DEFAULT 0');
+        await ensureCol('orders', 'order_note', 'VARCHAR(255) DEFAULT NULL');
+        await ensureIdx('orders', 'idx_orders_created_at', 'created_at');
+        await ensureIdx('orders', 'idx_orders_created_payment', 'created_at, payment_method, total_amount');
+
+        await ensureCol('order_details', 'note', 'VARCHAR(255) DEFAULT NULL');
+        await ensureIdx('order_details', 'idx_order_details_order_id', 'order_id');
+
+        // 2. Soft-delete (is_active) & index
+        await ensureCol('menu_items', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
+        await ensureCol('menu_item_sizes', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
+        await ensureIdx('menu_item_sizes', 'idx_menu_item_sizes_active', 'menu_item_id, is_active');
+        await ensureCol('toppings', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
+
+        // 3. Bảng daily_cash, expenses, shop_settings
+        if (!existingTables.has('daily_cash')) {
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS daily_cash (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    date DATE NOT NULL UNIQUE,
+                    initial_cash DECIMAL(12, 2) NOT NULL DEFAULT 0,
+                    is_manual_initial TINYINT(1) NOT NULL DEFAULT 0,
+                    actual_ending_cash DECIMAL(12, 2) DEFAULT NULL,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            `);
+        } else {
+            const addedManualFlag = await ensureCol('daily_cash', 'is_manual_initial', 'TINYINT(1) NOT NULL DEFAULT 0');
+            if (addedManualFlag) {
+                await db.query('UPDATE daily_cash SET is_manual_initial = 1 WHERE initial_cash > 0');
+            }
+        }
+
+        if (!existingTables.has('expenses')) {
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    date DATE NOT NULL,
+                    category VARCHAR(100) NOT NULL,
+                    amount DECIMAL(12, 2) NOT NULL,
+                    description VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+        }
+        await ensureIdx('expenses', 'idx_expenses_date', 'date');
+
+        if (!existingTables.has('shop_settings')) {
+            await db.query(`
+                CREATE TABLE IF NOT EXISTS shop_settings (
+                    setting_key VARCHAR(100) PRIMARY KEY,
+                    setting_value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            `);
+        }
+
+        // 4. Chuẩn hóa phân loại thực đơn
         await db.query(`
             UPDATE menu_items 
             SET category = 'Cà Phê - Cacao'
@@ -113,7 +133,6 @@ async function autoMigrate() {
                OR LOWER(name) LIKE '%bac xiu%'
         `);
 
-        // 7.2. Trà trái cây -> "Trà Trái Cây" (các món trà kết hợp trái cây)
         await db.query(`
             UPDATE menu_items 
             SET category = 'Trà Trái Cây'
@@ -122,38 +141,22 @@ async function autoMigrate() {
                 OR category LIKE '%Trà%'
             )
             AND (
-                LOWER(name) LIKE '%trà đào%' 
-                OR LOWER(name) LIKE '%tra dao%'
-                OR LOWER(name) LIKE '%trà dâu%' 
-                OR LOWER(name) LIKE '%tra dau%'
-                OR LOWER(name) LIKE '%trà nho%' 
-                OR LOWER(name) LIKE '%tra nho%'
-                OR LOWER(name) LIKE '%trà kiwi%' 
-                OR LOWER(name) LIKE '%tra kiwi%'
-                OR LOWER(name) LIKE '%trà ổi%' 
-                OR LOWER(name) LIKE '%tra oi%'
-                OR LOWER(name) LIKE '%trà chanh%' 
-                OR LOWER(name) LIKE '%tra chanh%'
-                OR LOWER(name) LIKE '%trà tắc%' 
-                OR LOWER(name) LIKE '%tra tac%'
-                OR LOWER(name) LIKE '%trà việt quất%' 
-                OR LOWER(name) LIKE '%tra viet quat%'
-                OR LOWER(name) LIKE '%trà mãng cầu%' 
-                OR LOWER(name) LIKE '%tra mang cau%'
-                OR LOWER(name) LIKE '%trà vải%' 
-                OR LOWER(name) LIKE '%tra vai%'
-                OR LOWER(name) LIKE '%trà xoài%' 
-                OR LOWER(name) LIKE '%tra xoai%'
-                OR LOWER(name) LIKE '%trà bưởi%' 
-                OR LOWER(name) LIKE '%tra buoi%'
-                OR LOWER(name) LIKE '%trà thơm%' 
-                OR LOWER(name) LIKE '%trà dứa%' 
-                OR LOWER(name) LIKE '%trà táo%' 
-                OR LOWER(name) LIKE '%trà lựu%' 
-                OR LOWER(name) LIKE '%trà dưa lưới%' 
-                OR LOWER(name) LIKE '%trà thanh long%' 
-                OR LOWER(name) LIKE '%trà sen%' 
-                OR LOWER(name) LIKE '%trà trái cây%' 
+                LOWER(name) LIKE '%trà đào%' OR LOWER(name) LIKE '%tra dao%'
+                OR LOWER(name) LIKE '%trà dâu%' OR LOWER(name) LIKE '%tra dau%'
+                OR LOWER(name) LIKE '%trà nho%' OR LOWER(name) LIKE '%tra nho%'
+                OR LOWER(name) LIKE '%trà kiwi%' OR LOWER(name) LIKE '%tra kiwi%'
+                OR LOWER(name) LIKE '%trà ổi%' OR LOWER(name) LIKE '%tra oi%'
+                OR LOWER(name) LIKE '%trà chanh%' OR LOWER(name) LIKE '%tra chanh%'
+                OR LOWER(name) LIKE '%trà tắc%' OR LOWER(name) LIKE '%tra tac%'
+                OR LOWER(name) LIKE '%trà việt quất%' OR LOWER(name) LIKE '%tra viet quat%'
+                OR LOWER(name) LIKE '%trà mãng cầu%' OR LOWER(name) LIKE '%tra mang cau%'
+                OR LOWER(name) LIKE '%trà vải%' OR LOWER(name) LIKE '%tra vai%'
+                OR LOWER(name) LIKE '%trà xoài%' OR LOWER(name) LIKE '%tra xoai%'
+                OR LOWER(name) LIKE '%trà bưởi%' OR LOWER(name) LIKE '%tra buoi%'
+                OR LOWER(name) LIKE '%trà thơm%' OR LOWER(name) LIKE '%trà dứa%'
+                OR LOWER(name) LIKE '%trà táo%' OR LOWER(name) LIKE '%trà lựu%'
+                OR LOWER(name) LIKE '%trà dưa lưới%' OR LOWER(name) LIKE '%trà thanh long%'
+                OR LOWER(name) LIKE '%trà sen%' OR LOWER(name) LIKE '%trà trái cây%'
                 OR LOWER(name) LIKE '%trà hoa quả%'
             )
             AND LOWER(name) NOT LIKE '%sữa%'
@@ -161,14 +164,12 @@ async function autoMigrate() {
             AND LOWER(name) NOT LIKE '%latte%'
         `);
 
-        // 7.3. Đổi phân loại cũ 'Trà / Trà Sữa' còn lại sang 'Trà Sữa - Sữa Tươi'
         await db.query(`
             UPDATE menu_items 
             SET category = 'Trà Sữa - Sữa Tươi'
             WHERE category IN ('Trà / Trà Sữa', 'Trà / Trà sữa', 'Trà/Trà Sữa', 'Trà/Trà sữa', 'Trà Sữa', 'Trà sữa', 'Sữa tươi', 'Sua tuoi')
         `);
 
-        // 7.4. Đảm bảo các món trà sữa / sữa tươi cụ thể (như Olong lài sữa, Sữa tươi trân châu đường đen, Sữa dừa sương sáo) vào 'Trà Sữa - Sữa Tươi'
         await db.query(`
             UPDATE menu_items 
             SET category = 'Trà Sữa - Sữa Tươi'
@@ -176,9 +177,17 @@ async function autoMigrate() {
               AND category NOT IN ('Trà Sữa - Sữa Tươi')
         `);
 
+        // Lưu lại phiên bản đã migrate để các lần cold start sau chỉ tốn 1 query
+        await db.query(
+            `INSERT INTO shop_settings (setting_key, setting_value)
+             VALUES ('schema_migration_version', ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+            [CURRENT_SCHEMA_VERSION]
+        );
+
         console.log('[Migration] Database schema and categories are up to date.');
     } catch (err) {
-        console.error('[Migration Error]:', err.message);
+        console.error('[Migration Warning]', err.message);
     }
 }
 

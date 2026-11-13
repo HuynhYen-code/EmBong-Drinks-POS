@@ -92,7 +92,8 @@
               </button>
               <button
                 @click="deleteWholeDrink(drink)"
-                class="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center text-xs font-bold transition"
+                :disabled="deletingKey === `item-${drink.id}`"
+                class="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center text-xs font-bold transition disabled:opacity-50"
                 title="Xóa toàn bộ món này"
               >
                 🗑
@@ -159,10 +160,11 @@
                   </button>
                   <button
                     @click="deleteSingleSize(sz)"
-                    class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 font-bold text-xs transition"
+                    :disabled="deletingKey === `size-${sz.id}`"
+                    class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 font-bold text-xs transition disabled:opacity-50"
                     title="Xóa size này"
                   >
-                    Xóa
+                    {{ deletingKey === `size-${sz.id}` ? '...' : 'Xóa' }}
                   </button>
                 </div>
               </div>
@@ -464,9 +466,9 @@
             📋 Nhân bản tạo Size khác
           </button>
           <div class="flex gap-2.5 ml-auto">
-            <button @click="showModal = false" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200 hover:bg-gray-100">Hủy</button>
-            <button @click="saveMenu" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600 shadow-sm">
-              {{ isEditing ? 'Lưu Cập Nhật' : 'Lưu Món Mới' }}
+            <button @click="showModal = false" :disabled="isSaving" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-50">Hủy</button>
+            <button @click="saveMenu" :disabled="isSaving" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600 shadow-sm disabled:opacity-50">
+              {{ isSaving ? 'Đang lưu...' : (isEditing ? 'Lưu Cập Nhật' : 'Lưu Món Mới') }}
             </button>
           </div>
         </div>
@@ -477,7 +479,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { API_BASE, removeAccents, formatPrice, showToast, DEFAULT_MENU_CATEGORIES } from '../../utils/helpers'
+import { API_BASE, POS_CACHE_KEY, removeAccents, formatPrice, showToast, DEFAULT_MENU_CATEGORIES } from '../../utils/helpers'
 
 const groupedRaw = ref([])
 const flatMenu = ref([])
@@ -493,6 +495,8 @@ const currentEditId = ref(null)
 const fileInput = ref(null)
 const qtyInputRef = ref(null)
 const isUploading = ref(false)
+const isSaving = ref(false)
+const deletingKey = ref(null)
 
 const form = ref({ name: '', category: 'Trà Sữa - Sữa Tươi', image_url: '', size: '', price: '', ingredients: [] })
 
@@ -742,11 +746,13 @@ const fetchData = async () => {
 onMounted(() => fetchData())
 
 const saveMenu = async () => {
+  if (isSaving.value) return
   if (!form.value.name || !form.value.size) {
     showToast('Vui lòng nhập đầy đủ Tên món và Size!', 'warning')
     return
   }
 
+  isSaving.value = true
   try {
     const url = isEditing.value ? `${API_BASE}/menu-items/${currentEditId.value}` : `${API_BASE}/menu-items`
     const method = isEditing.value ? 'PUT' : 'POST'
@@ -758,7 +764,7 @@ const saveMenu = async () => {
     })
 
     if (res.ok) {
-      localStorage.removeItem('embong_pos_cache_v2')
+      localStorage.removeItem(POS_CACHE_KEY)
       showToast(isEditing.value ? 'Đã cập nhật món thành công!' : 'Đã thêm món / size mới!')
       showModal.value = false
       await fetchData()
@@ -768,15 +774,19 @@ const saveMenu = async () => {
     }
   } catch (e) {
     showToast('Không thể kết nối đến Backend!', 'error')
+  } finally {
+    isSaving.value = false
   }
 }
 
 const deleteSingleSize = async (sz) => {
+  if (deletingKey.value) return
   if (!confirm(`Xóa size "${sz.size}" của món "${sz.name}"? (Lịch sử hóa đơn cũ vẫn được bảo toàn)`)) return
+  deletingKey.value = `size-${sz.id}`
   try {
     const res = await fetch(`${API_BASE}/menu-items/size/${sz.id}`, { method: 'DELETE' })
     if (res.ok) {
-      localStorage.removeItem('embong_pos_cache_v2')
+      localStorage.removeItem(POS_CACHE_KEY)
       showToast(`Đã xóa size ${sz.size} của ${sz.name}`)
       await fetchData()
     } else {
@@ -785,15 +795,19 @@ const deleteSingleSize = async (sz) => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    deletingKey.value = null
   }
 }
 
 const deleteWholeDrink = async (drink) => {
+  if (deletingKey.value) return
   if (!confirm(`Xóa toàn bộ món "${drink.name}" (gồm tất cả các size) khỏi thực đơn bán hàng?`)) return
+  deletingKey.value = `item-${drink.id}`
   try {
     const res = await fetch(`${API_BASE}/menu-items/item/${drink.id}`, { method: 'DELETE' })
     if (res.ok) {
-      localStorage.removeItem('embong_pos_cache_v2')
+      localStorage.removeItem(POS_CACHE_KEY)
       showToast(`Đã xóa món "${drink.name}" khỏi thực đơn`)
       await fetchData()
     } else {
@@ -802,6 +816,8 @@ const deleteWholeDrink = async (drink) => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    deletingKey.value = null
   }
 }
 </script>

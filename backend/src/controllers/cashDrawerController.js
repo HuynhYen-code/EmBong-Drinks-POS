@@ -4,14 +4,18 @@ const { getVietnamDateStr } = require('./../utils/dateHelper');
 const ROLLOVER_CUTOFF_DATE = '2026-11-06';
 
 async function resolveInitialCashForDate(dateStr) {
+    // Gộp 2 truy vấn (ngày hiện tại + ngày neo gần nhất) thành 1 lượt duy nhất để tiết kiệm 1 RTT mạng
     const [cashRows] = await db.query(
         `SELECT DATE_FORMAT(date, '%Y-%m-%d') as date_str, initial_cash, is_manual_initial, actual_ending_cash, notes
          FROM daily_cash
-         WHERE date = ?`,
-        [dateStr]
+         WHERE date = ?
+            OR (date < ? AND (actual_ending_cash IS NOT NULL OR is_manual_initial = 1))
+         ORDER BY date DESC
+         LIMIT 2`,
+        [dateStr, dateStr]
     );
 
-    const currentRow = cashRows.length > 0 ? cashRows[0] : null;
+    const currentRow = cashRows.find(r => r.date_str === dateStr) || null;
 
     // Nếu người dùng đã chủ động nhập tay tiền đầu ngày cho ngày này -> ưu tiên số nhập tay
     if (currentRow && Number(currentRow.is_manual_initial) === 1) {
@@ -24,21 +28,13 @@ async function resolveInitialCashForDate(dateStr) {
     }
 
     // Ngược lại: tự động lấy tiền kết két của ngày trước chuyển sang đầu ngày hôm nay
-    const [anchorRows] = await db.query(
-        `SELECT DATE_FORMAT(date, '%Y-%m-%d') as date_str, initial_cash, is_manual_initial, actual_ending_cash
-         FROM daily_cash
-         WHERE date < ? AND (actual_ending_cash IS NOT NULL OR is_manual_initial = 1)
-         ORDER BY date DESC
-         LIMIT 1`,
-        [dateStr]
-    );
+    const anchor = cashRows.find(r => r.date_str < dateStr) || null;
 
     let baseAmount = 0;
     let flowStartDate = null;
     let rolloverFromDate = null;
 
-    if (anchorRows.length > 0) {
-        const anchor = anchorRows[0];
+    if (anchor) {
         rolloverFromDate = anchor.date_str;
 
         if (anchor.actual_ending_cash !== null && anchor.actual_ending_cash !== undefined) {

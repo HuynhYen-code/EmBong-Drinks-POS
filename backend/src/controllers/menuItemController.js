@@ -1,8 +1,14 @@
 const db = require('../config/db');
 const { recalculateMenuItemCogs } = require('../utils/costCalculator');
+const { getCache, setCache, invalidateCache } = require('../utils/cache');
 
 exports.getAll = async (req, res) => {
     try {
+        const cached = getCache('menu_all');
+        if (cached) {
+            return res.json(cached);
+        }
+
         // 4 truy vấn chạy song song thay vì vòng lặp N+1 (~47 roundtrips -> 1 roundtrip)
         const [[items], [sizes], [allIngs], [toppings]] = await Promise.all([
             db.query('SELECT * FROM menu_items WHERE is_active = 1 ORDER BY id DESC'),
@@ -109,7 +115,7 @@ exports.getAll = async (req, res) => {
             });
         }
 
-        res.json({
+        const payload = {
             menu_items: posMenuItems,
             grouped_items: groupedItems,
             admin_items: adminItems,
@@ -118,7 +124,9 @@ exports.getAll = async (req, res) => {
                 name: t.name,
                 price: parseFloat(t.price) || 0
             }))
-        });
+        };
+        setCache('menu_all', payload);
+        res.json(payload);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -206,6 +214,7 @@ exports.create = async (req, res) => {
         connection.release();
 
         await recalculateMenuItemCogs(sizeId);
+        invalidateCache('menu_all', 'checkout_catalog');
         res.status(201).json({ id: sizeId, menu_item_id: menuItemId, message: 'Đã tạo món / size thành công' });
     } catch (err) {
         await connection.rollback();
@@ -258,6 +267,7 @@ exports.update = async (req, res) => {
         connection.release();
 
         await recalculateMenuItemCogs(sizeId);
+        invalidateCache('menu_all', 'checkout_catalog');
         res.json({ message: 'Cập nhật món / size thành công' });
     } catch (err) {
         await connection.rollback();
@@ -319,6 +329,7 @@ exports.deleteSize = async (req, res) => {
 
         await connection.commit();
         connection.release();
+        invalidateCache('menu_all', 'checkout_catalog');
         res.json({ message: 'Đã xóa size món thành công' });
     } catch (err) {
         await connection.rollback();
@@ -353,6 +364,7 @@ exports.deleteItem = async (req, res) => {
 
         await connection.commit();
         connection.release();
+        invalidateCache('menu_all', 'checkout_catalog');
         res.json({ message: 'Đã xóa món khỏi thực đơn thành công' });
     } catch (err) {
         await connection.rollback();
@@ -440,6 +452,7 @@ exports.migrateCategories = async (req, res) => {
         `);
 
         const [items] = await db.query('SELECT id, name, category FROM menu_items WHERE is_active = 1 ORDER BY category ASC, id DESC');
+        invalidateCache('menu_all', 'checkout_catalog');
         res.json({ message: 'Cập nhật phân loại thành công', items });
     } catch (err) {
         res.status(500).json({ error: err.message });

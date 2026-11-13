@@ -64,8 +64,8 @@
             <button @click="openEdit(item)" class="px-3.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs transition">
               Sửa
             </button>
-            <button @click="deleteTopping(item)" class="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 font-bold text-xs transition">
-              Xóa
+            <button @click="deleteTopping(item)" :disabled="deletingId === item.id" class="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 font-bold text-xs transition disabled:opacity-50">
+              {{ deletingId === item.id ? '...' : 'Xóa' }}
             </button>
           </div>
         </div>
@@ -150,8 +150,10 @@
         </div>
 
         <div class="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2.5 shrink-0">
-          <button @click="showModal = false" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200">Hủy</button>
-          <button @click="saveTopping" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600">Lưu Topping</button>
+          <button @click="showModal = false" :disabled="isSaving" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200 disabled:opacity-50">Hủy</button>
+          <button @click="saveTopping" :disabled="isSaving" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50">
+            {{ isSaving ? 'Đang lưu...' : 'Lưu Topping' }}
+          </button>
         </div>
       </div>
     </div>
@@ -160,7 +162,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { API_BASE, removeAccents, formatPrice, showToast } from '../../utils/helpers'
+import { API_BASE, POS_CACHE_KEY, removeAccents, formatPrice, showToast } from '../../utils/helpers'
 
 const toppings = ref([])
 const materials = ref([])
@@ -168,6 +170,8 @@ const preps = ref([])
 const showModal = ref(false)
 const isEditing = ref(false)
 const currentEditId = ref(null)
+const isSaving = ref(false)
+const deletingId = ref(null)
 
 const form = ref({ name: '', price: '', ingredients: [] })
 const ingSearch = ref('')
@@ -265,6 +269,7 @@ const fetchData = async () => {
 onMounted(() => fetchData())
 
 const saveTopping = async () => {
+  if (isSaving.value) return
   if (!form.value.name) {
     showToast('Vui lòng nhập tên Topping', 'warning')
     return
@@ -274,6 +279,7 @@ const saveTopping = async () => {
     addIng()
   }
 
+  isSaving.value = true
   try {
     const url = isEditing.value ? `${API_BASE}/toppings/${currentEditId.value}` : `${API_BASE}/toppings`
     const method = isEditing.value ? 'PUT' : 'POST'
@@ -284,7 +290,7 @@ const saveTopping = async () => {
     })
 
     if (res.ok) {
-      localStorage.removeItem('embong_pos_cache_v2')
+      localStorage.removeItem(POS_CACHE_KEY)
       showToast(isEditing.value ? 'Đã cập nhật Topping!' : 'Đã thêm Topping mới!')
       showModal.value = false
       await fetchData()
@@ -294,16 +300,20 @@ const saveTopping = async () => {
     }
   } catch (e) {
     showToast('Không thể kết nối máy chủ', 'error')
+  } finally {
+    isSaving.value = false
   }
 }
 
 const deleteTopping = async (item) => {
+  if (deletingId.value) return
   if (!confirm(`Xóa Topping "${item.name}"? (Nếu từng có trong bill cũ, hệ thống sẽ ẩn khỏi POS nhưng vẫn giữ nguyên lịch sử bill)`)) return
+  deletingId.value = item.id
   try {
     const res = await fetch(`${API_BASE}/toppings/${item.id}`, { method: 'DELETE' })
     if (res.ok) {
       const data = await res.json()
-      localStorage.removeItem('embong_pos_cache_v2')
+      localStorage.removeItem(POS_CACHE_KEY)
       showToast(data.message || 'Đã xóa Topping')
       await fetchData()
     } else {
@@ -312,6 +322,8 @@ const deleteTopping = async (item) => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    deletingId.value = null
   }
 }
 </script>

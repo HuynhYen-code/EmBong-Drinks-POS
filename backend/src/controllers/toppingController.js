@@ -1,8 +1,16 @@
 const db = require('../config/db');
 const { recalculateToppingCogs } = require('../utils/costCalculator');
+const { getCache, setCache, invalidateCache } = require('../utils/cache');
+
+const invalidateToppingDependents = () => {
+    invalidateCache('toppings_all', 'menu_all', 'checkout_catalog');
+};
 
 exports.getAll = async (req, res) => {
     try {
+        const cached = getCache('toppings_all');
+        if (cached) return res.json(cached);
+
         const [[toppings], [ingredients]] = await Promise.all([
             db.query('SELECT * FROM toppings WHERE is_active = 1 ORDER BY id ASC'),
             db.query(`
@@ -37,6 +45,7 @@ exports.getAll = async (req, res) => {
             ingredients: ingMap[t.id] || []
         }));
 
+        setCache('toppings_all', admin_toppings);
         res.json(admin_toppings);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -75,6 +84,7 @@ exports.create = async (req, res) => {
         connection.release();
 
         await recalculateToppingCogs(toppingId);
+        invalidateToppingDependents();
         res.status(201).json({ id: toppingId, message: 'Đã thêm Topping thành công' });
     } catch (err) {
         await connection.rollback();
@@ -113,6 +123,7 @@ exports.update = async (req, res) => {
         connection.release();
 
         await recalculateToppingCogs(toppingId);
+        invalidateToppingDependents();
         res.json({ message: 'Cập nhật Topping thành công' });
     } catch (err) {
         await connection.rollback();
@@ -133,10 +144,12 @@ exports.delete = async (req, res) => {
             // Đã từng bán trong hóa đơn lịch sử -> Soft delete để giữ toàn vẹn lịch sử bill
             await db.query('DELETE FROM topping_ingredients WHERE topping_id = ?', [toppingId]);
             await db.query('UPDATE toppings SET is_active = 0 WHERE id = ?', [toppingId]);
+            invalidateToppingDependents();
             return res.json({ message: 'Đã ngừng kinh doanh Topping (lịch sử hóa đơn cũ vẫn được giữ nguyên)' });
         }
 
         await db.query('DELETE FROM toppings WHERE id = ?', [toppingId]);
+        invalidateToppingDependents();
         res.json({ message: 'Đã xóa Topping thành công' });
     } catch (err) {
         res.status(500).json({ error: err.message });

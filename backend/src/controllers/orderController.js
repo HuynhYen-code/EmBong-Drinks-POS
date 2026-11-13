@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { getCache, setCache } = require('../utils/cache');
 const { STYLES, buildXlsxWorkbook } = require('../utils/excelBuilder');
 const {
     getVietnamDateStr,
@@ -9,55 +10,84 @@ const {
 
 const ROLLOVER_CUTOFF_DATE = '2026-11-06';
 
+// Chống double-submit (click đúp / mạng lag gửi lại cùng 1 đơn hàng) trong vòng 60 giây
+const recentCheckouts = new Map();
+const inFlightCheckouts = new Map();
+
+function cleanupRecentCheckouts() {
+    if (recentCheckouts.size <= 100) return;
+    const now = Date.now();
+    for (const [k, v] of recentCheckouts.entries()) {
+        if (now > v.expiresAt) recentCheckouts.delete(k);
+    }
+}
+
+async function getCheckoutCatalog(forceRefresh = false) {
+    if (!forceRefresh) {
+        const cached = getCache('checkout_catalog');
+        if (cached) return cached;
+    }
+
+    const [[sizeRows], [toppingRows]] = await Promise.all([
+        db.query('SELECT menu_item_id, size_name, price, current_cogs FROM menu_item_sizes WHERE is_active = 1'),
+        db.query('SELECT id, price, current_cogs FROM toppings WHERE is_active = 1')
+    ]);
+
+    const sizeMap = {};
+    for (const s of sizeRows) {
+        sizeMap[`${s.menu_item_id}__${s.size_name}`] = {
+            price: parseFloat(s.price) || 0,
+            cogs: parseFloat(s.current_cogs) || 0
+        };
+    }
+
+    const toppingMap = {};
+    for (const t of toppingRows) {
+        toppingMap[t.id] = {
+            price: parseFloat(t.price) || 0,
+            cogs: parseFloat(t.current_cogs) || 0
+        };
+    }
+
+    return setCache('checkout_catalog', { sizeMap, toppingMap }, 300000);
+}
+
 exports.create = async (req, res) => {
-    const { cart_items, payment_method, discount_amount, order_note } = req.body;
+    const { cart_items, payment_method, discount_amount, order_note, client_request_id } = req.body;
 
     if (!Array.isArray(cart_items) || cart_items.length === 0) {
         return res.status(400).json({ error: 'Giỏ hàng đang trống!' });
     }
 
+    const reqKey = client_request_id ? String(client_request_id).trim() : '';
+    if (reqKey) {
+        const done = recentCheckouts.get(reqKey);
+        if (done && Date.now() <= done.expiresAt) {
+            return res.status(201).json(done.response);
+        }
+        const pending = inFlightCheckouts.get(reqKey);
+        if (pending) {
+            try {
+                const resultPayload = await pending;
+                return res.status(201).json(resultPayload);
+            } catch (e) {
+                return res.status(500).json({ error: e.message });
+            }
+        }
+    }
+
     const validPaymentMethod = payment_method === 'transfer' ? 'transfer' : 'cash';
 
-    const connection = await db.getConnection();
-    try {
-        await connection.beginTransaction();
+    const processCheckout = async () => {
+        // 1. Tra cứu giá & COGS từ RAM cache (0 RTT) hoặc đồng bộ 1 lượt nếu chưa có
+        let { sizeMap, toppingMap } = await getCheckoutCatalog(false);
 
-        // Gom danh sách ID món & topping để truy vấn 1 lần (tránh N+1 queries giờ cao điểm)
-        const itemIds = [...new Set(cart_items.map(i => i.id).filter(Boolean))];
-        const toppingIds = [
-            ...new Set(
-                cart_items.flatMap(i => (Array.isArray(i.toppings) ? i.toppings.map(t => t.id) : [])).filter(Boolean)
-            )
-        ];
-
-        const [sizeRows] = itemIds.length > 0
-            ? await connection.query(
-                'SELECT menu_item_id, size_name, price, current_cogs FROM menu_item_sizes WHERE menu_item_id IN (?)',
-                [itemIds]
-            )
-            : [[]];
-
-        const [toppingRows] = toppingIds.length > 0
-            ? await connection.query(
-                'SELECT id, price, current_cogs FROM toppings WHERE id IN (?)',
-                [toppingIds]
-            )
-            : [[]];
-
-        const sizeMap = {};
-        for (const s of sizeRows) {
-            sizeMap[`${s.menu_item_id}__${s.size_name}`] = {
-                price: parseFloat(s.price) || 0,
-                cogs: parseFloat(s.current_cogs) || 0
-            };
-        }
-
-        const toppingMap = {};
-        for (const t of toppingRows) {
-            toppingMap[t.id] = {
-                price: parseFloat(t.price) || 0,
-                cogs: parseFloat(t.current_cogs) || 0
-            };
+        const missingItem = cart_items.some(i => !sizeMap[`${i.id}__${i.size}`]);
+        const missingTopping = cart_items.some(i =>
+            Array.isArray(i.toppings) && i.toppings.some(t => !toppingMap[t.id])
+        );
+        if (missingItem || missingTopping) {
+            ({ sizeMap, toppingMap } = await getCheckoutCatalog(true));
         }
 
         let subtotalAmount = 0;
@@ -79,14 +109,7 @@ exports.create = async (req, res) => {
             let itemTotalCogs = unitCogs * cupQty;
 
             const detIndex = details.length;
-            details.push({
-                menu_item_id: item.id,
-                size_name: item.size,
-                quantity: cupQty,
-                unit_price: unitPrice,
-                unit_cogs: unitCogs,
-                note: item.note ? String(item.note).trim().slice(0, 255) : null
-            });
+            const itemToppings = [];
 
             if (Array.isArray(item.toppings) && item.toppings.length > 0) {
                 for (const t of item.toppings) {
@@ -97,16 +120,28 @@ exports.create = async (req, res) => {
                         itemTotalAmount += topInfo.price * totalTopPortions;
                         itemTotalCogs += topInfo.cogs * totalTopPortions;
 
-                        detailsToppings.push({
+                        const topEntry = {
                             detIndex,
                             topping_id: t.id,
                             quantity: totalTopPortions,
                             unit_price: topInfo.price,
                             unit_cogs: topInfo.cogs
-                        });
+                        };
+                        detailsToppings.push(topEntry);
+                        itemToppings.push(topEntry);
                     }
                 }
             }
+
+            details.push({
+                menu_item_id: item.id,
+                size_name: item.size,
+                quantity: cupQty,
+                unit_price: unitPrice,
+                unit_cogs: unitCogs,
+                note: item.note ? String(item.note).trim().slice(0, 255) : null,
+                itemToppings
+            });
 
             subtotalAmount += itemTotalAmount;
             totalCogs += itemTotalCogs;
@@ -116,51 +151,101 @@ exports.create = async (req, res) => {
         const finalTotalAmount = subtotalAmount - cleanDiscount;
         const cleanOrderNote = order_note ? String(order_note).trim().slice(0, 255) : null;
 
-        const [orderResult] = await connection.query(
-            `INSERT INTO orders (subtotal_amount, discount_amount, total_amount, total_cogs, payment_method, order_note)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [subtotalAmount, cleanDiscount, finalTotalAmount, totalCogs, validPaymentMethod, cleanOrderNote]
-        );
-        const orderId = orderResult.insertId;
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
 
-        const toppingInsertRows = [];
-        for (let i = 0; i < details.length; i++) {
-            const det = details[i];
-            const [detResult] = await connection.query(
-                `INSERT INTO order_details (order_id, menu_item_id, size_name, quantity, unit_price, unit_cogs, note)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [orderId, det.menu_item_id, det.size_name, det.quantity, det.unit_price, det.unit_cogs, det.note]
+            const [orderResult] = await connection.query(
+                `INSERT INTO orders (subtotal_amount, discount_amount, total_amount, total_cogs, payment_method, order_note)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [subtotalAmount, cleanDiscount, finalTotalAmount, totalCogs, validPaymentMethod, cleanOrderNote]
             );
-            const detailId = detResult.insertId;
+            const orderId = orderResult.insertId;
 
-            const relatedToppings = detailsToppings.filter(dt => dt.detIndex === i);
-            for (const rt of relatedToppings) {
-                toppingInsertRows.push([detailId, rt.topping_id, rt.quantity, rt.unit_price, rt.unit_cogs]);
+            const noToppingRows = [];
+            const withToppingDetails = [];
+
+            for (const det of details) {
+                if (det.itemToppings.length === 0) {
+                    noToppingRows.push([orderId, det.menu_item_id, det.size_name, det.quantity, det.unit_price, det.unit_cogs, det.note]);
+                } else {
+                    withToppingDetails.push(det);
+                }
             }
-        }
 
-        if (toppingInsertRows.length > 0) {
-            await connection.query(
-                'INSERT INTO order_detail_toppings (order_detail_id, topping_id, quantity, unit_price, unit_cogs) VALUES ?',
-                [toppingInsertRows]
+            const insertDetailTasks = [];
+
+            if (noToppingRows.length > 0) {
+                insertDetailTasks.push(
+                    connection.query(
+                        'INSERT INTO order_details (order_id, menu_item_id, size_name, quantity, unit_price, unit_cogs, note) VALUES ?',
+                        [noToppingRows]
+                    )
+                );
+            }
+
+            const toppingInsertRows = [];
+            const withToppingTasks = withToppingDetails.map(det =>
+                connection.query(
+                    `INSERT INTO order_details (order_id, menu_item_id, size_name, quantity, unit_price, unit_cogs, note)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [orderId, det.menu_item_id, det.size_name, det.quantity, det.unit_price, det.unit_cogs, det.note]
+                ).then(([detResult]) => {
+                    const detailId = detResult.insertId;
+                    for (const rt of det.itemToppings) {
+                        toppingInsertRows.push([detailId, rt.topping_id, rt.quantity, rt.unit_price, rt.unit_cogs]);
+                    }
+                })
             );
+
+            await Promise.all([...insertDetailTasks, ...withToppingTasks]);
+
+            if (toppingInsertRows.length > 0) {
+                await connection.query(
+                    'INSERT INTO order_detail_toppings (order_detail_id, topping_id, quantity, unit_price, unit_cogs) VALUES ?',
+                    [toppingInsertRows]
+                );
+            }
+
+            await connection.commit();
+            connection.release();
+
+            return {
+                id: orderId,
+                subtotal_amount: subtotalAmount,
+                discount_amount: cleanDiscount,
+                total_amount: finalTotalAmount,
+                payment_method: validPaymentMethod,
+                message: 'Thanh toán đơn hàng thành công'
+            };
+        } catch (err) {
+            await connection.rollback();
+            connection.release();
+            throw err;
         }
+    };
 
-        await connection.commit();
-        connection.release();
+    const checkoutPromise = processCheckout();
+    if (reqKey) {
+        inFlightCheckouts.set(reqKey, checkoutPromise);
+    }
 
-        res.status(201).json({
-            id: orderId,
-            subtotal_amount: subtotalAmount,
-            discount_amount: cleanDiscount,
-            total_amount: finalTotalAmount,
-            payment_method: validPaymentMethod,
-            message: 'Thanh toán đơn hàng thành công'
-        });
+    try {
+        const responsePayload = await checkoutPromise;
+        if (reqKey) {
+            cleanupRecentCheckouts();
+            recentCheckouts.set(reqKey, {
+                response: responsePayload,
+                expiresAt: Date.now() + 60000
+            });
+        }
+        res.status(201).json(responsePayload);
     } catch (err) {
-        await connection.rollback();
-        connection.release();
         res.status(500).json({ error: err.message });
+    } finally {
+        if (reqKey) {
+            inFlightCheckouts.delete(reqKey);
+        }
     }
 };
 
@@ -171,6 +256,9 @@ exports.getStats = async (req, res) => {
 
     const dayStart = `${selectedDate} 00:00:00`;
     const dayEnd = `${selectedDate} 23:59:59`;
+    const cutoffDate = new Date(`${getVietnamDateStr()}T00:00:00Z`);
+    cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 120);
+    const trendStart = `${cutoffDate.toISOString().slice(0, 10)} 00:00:00`;
 
     try {
         // Chạy song song toàn bộ truy vấn thống kê để tải trang cực nhanh
@@ -216,10 +304,11 @@ exports.getStats = async (req, res) => {
                     SUM(total_cogs) as cogs,
                     (SUM(total_amount) - SUM(total_cogs)) as profit
                 FROM orders
+                WHERE created_at >= ?
                 GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
                 ORDER BY date DESC
                 LIMIT 30
-            `),
+            `, [trendStart]),
 
             db.query(`
                 SELECT 
@@ -227,10 +316,11 @@ exports.getStats = async (req, res) => {
                     SUM(od.quantity) as cups
                 FROM order_details od
                 JOIN orders o ON od.order_id = o.id
+                WHERE o.created_at >= ?
                 GROUP BY DATE_FORMAT(o.created_at, '%Y-%m-%d')
                 ORDER BY date DESC
                 LIMIT 30
-            `),
+            `, [trendStart]),
 
             db.query(`
                 SELECT 

@@ -76,19 +76,17 @@ const recalculatePrepCost = async (prepId) => {
 
 // Tính toán lại hệ quả khi 1 Material thay đổi
 const recalculateFromMaterial = async (materialId) => {
-    // 1. Cập nhật các Prep dùng Material này (tự động kéo theo MenuItem & Topping dùng Prep đó)
+    // 1. Cập nhật song song các Prep dùng Material này (tự động kéo theo MenuItem & Topping dùng Prep đó)
     const [prepsAffected] = await db.query('SELECT DISTINCT prep_id FROM prep_ingredients WHERE material_id = ?', [materialId]);
-    for (const prep of prepsAffected) {
-        await recalculatePrepCost(prep.prep_id);
-    }
 
-    // 2. Cập nhật các MenuItemSize & Topping dùng TRỰC TIẾP Material này
+    // 2. Lấy đồng thời MenuItemSize & Topping dùng TRỰC TIẾP Material này
     const [menuSizesAffected, toppingsAffected] = await Promise.all([
         db.query('SELECT DISTINCT menu_item_size_id FROM menu_item_size_ingredients WHERE ingredient_type = "material" AND ingredient_id = ?', [materialId]),
         db.query('SELECT DISTINCT topping_id FROM topping_ingredients WHERE ingredient_type = "material" AND ingredient_id = ?', [materialId])
     ]);
 
     await Promise.all([
+        ...prepsAffected.map(prep => recalculatePrepCost(prep.prep_id)),
         ...menuSizesAffected[0].map(size => recalculateMenuItemCogs(size.menu_item_size_id)),
         ...toppingsAffected[0].map(top => recalculateToppingCogs(top.topping_id))
     ]);

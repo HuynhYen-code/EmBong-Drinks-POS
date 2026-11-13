@@ -666,9 +666,10 @@
               <button
                 type="button"
                 @click="saveBankSettings"
-                class="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition"
+                :disabled="isSavingBank"
+                class="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition disabled:opacity-50"
               >
-                Lưu & Hiện Mã QR
+                {{ isSavingBank ? 'Đang lưu...' : 'Lưu & Hiện Mã QR' }}
               </button>
             </div>
           </div>
@@ -687,7 +688,8 @@
           <button
             type="button"
             @click="showPaymentModal = false"
-            class="flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-2xl font-bold text-sm hover:bg-gray-200 transition"
+            :disabled="isCheckingOut"
+            class="flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-2xl font-bold text-sm hover:bg-gray-200 transition disabled:opacity-50"
           >
             Quay lại
           </button>
@@ -697,7 +699,7 @@
             :disabled="isCheckingOut || (selectedPaymentMethod === 'cash' && customerGiven > 0 && customerGiven < finalPayableAmount)"
             class="flex-[2] py-3.5 bg-brand-500 text-white rounded-2xl font-extrabold text-sm sm:text-base hover:bg-brand-600 transition shadow-md disabled:bg-gray-200 disabled:text-gray-400 flex items-center justify-center gap-2"
           >
-            <span>{{ isCheckingOut ? 'Đang lưu đơn...' : '✓ Hoàn Tất Thanh Toán' }}</span>
+            <span>{{ isCheckingOut ? 'Đang thanh toán...' : '✓ Hoàn Tất Thanh Toán' }}</span>
           </button>
         </div>
       </div>
@@ -817,18 +819,18 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import {
   API_BASE,
+  POS_CACHE_KEY,
   removeAccents,
   formatPrice,
   formatShortPrice,
   showToast,
   isSoundMuted,
   toggleSoundMute,
+  unlockCheckoutAudio,
   playCheckoutSound,
   QUICK_ITEM_NOTES,
   VIETQR_BANKS
 } from '../utils/helpers'
-
-const POS_CACHE_KEY = 'embong_pos_cache_v3'
 
 const menuItems = ref([])
 const toppings = ref([])
@@ -853,6 +855,8 @@ const tempSelection = ref({
 
 const isMobileCartOpen = ref(false)
 const isCheckingOut = ref(false)
+const checkoutRequestId = ref('')
+const isSavingBank = ref(false)
 
 // Payment & Discount state
 const showPaymentModal = ref(false)
@@ -907,11 +911,15 @@ onMounted(async () => {
   }
 
   // 2. Làm mới dữ liệu thực đơn & cấu hình ngân hàng song song dưới nền
+  const slowWakeTimer = setTimeout(() => {
+    showToast('Máy chủ đang khởi động lại sau thời gian nghỉ, vui lòng đợi vài giây...', 'warning', 4500)
+  }, 3500)
   try {
     const [resMenu, resSettings] = await Promise.all([
       fetch(`${API_BASE}/menu-items`),
       fetch(`${API_BASE}/settings`).catch(() => null)
     ])
+    clearTimeout(slowWakeTimer)
 
     if (resMenu && resMenu.ok) {
       const data = await resMenu.json()
@@ -939,6 +947,7 @@ onMounted(async () => {
       }
     }
   } catch (error) {
+    clearTimeout(slowWakeTimer)
     console.error('Error fetching POS data:', error)
     if (menuItems.value.length === 0) {
       showToast('Không thể kết nối đến máy chủ Backend!', 'error')
@@ -1056,11 +1065,13 @@ const onBankSelectChange = () => {
 }
 
 const saveBankSettings = async () => {
+  if (isSavingBank.value) return
   if (!bankSettings.value.bank_bin || !bankSettings.value.account_no) {
     showToast('Vui lòng chọn Ngân hàng và nhập Số tài khoản', 'warning')
     return
   }
   onBankSelectChange()
+  isSavingBank.value = true
   try {
     const res = await fetch(`${API_BASE}/settings`, {
       method: 'POST',
@@ -1073,6 +1084,8 @@ const saveBankSettings = async () => {
     }
   } catch (e) {
     showToast('Lỗi lưu cấu hình ngân hàng', 'error')
+  } finally {
+    isSavingBank.value = false
   }
 }
 
@@ -1285,6 +1298,7 @@ const clearCart = () => {
 
 const openPaymentModal = () => {
   if (cart.value.length === 0 || isCheckingOut.value) return
+  checkoutRequestId.value = `pos_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   selectedPaymentMethod.value = 'cash'
   discountInput.value = 0
   orderNote.value = ''
@@ -1295,9 +1309,12 @@ const openPaymentModal = () => {
 const executeCheckout = async () => {
   if (cart.value.length === 0 || isCheckingOut.value) return
   isCheckingOut.value = true
+  // Mở khóa AudioContext đồng bộ ngay trong cử chỉ bấm nút để âm thanh tiền kêu phát to & rõ 100%
+  unlockCheckoutAudio()
 
   try {
     const payload = {
+      client_request_id: checkoutRequestId.value,
       payment_method: selectedPaymentMethod.value,
       discount_amount: computedDiscountAmount.value,
       order_note: orderNote.value,
@@ -1321,13 +1338,14 @@ const executeCheckout = async () => {
 
     if (res.ok) {
       const data = await res.json()
-      // Phát âm thanh "Ting-ting" báo hiệu thanh toán thành công!
+      // Phát âm thanh "Cha-Ching! Tiếng tiền kêu" báo hiệu thanh toán thành công!
       playCheckoutSound()
       const methodLabel = selectedPaymentMethod.value === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
       showToast(`Thanh toán thành công đơn #${data.id} · ${formatPrice(finalPayableAmount.value)} (${methodLabel})!`)
       cart.value = []
       discountInput.value = 0
       orderNote.value = ''
+      checkoutRequestId.value = ''
       showPaymentModal.value = false
       isMobileCartOpen.value = false
     } else {

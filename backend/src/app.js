@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 
 const materialRoutes = require('./routes/materialRoutes');
 const prepRoutes = require('./routes/prepRoutes');
@@ -17,6 +18,32 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Nén Gzip tự động cho các JSON response lớn (>1KB) giúp giảm ~85% dung lượng truyền tải qua 4G/WiFi
+app.use((req, res, next) => {
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (!acceptEncoding.includes('gzip')) return next();
+
+    const originalJson = res.json.bind(res);
+    res.json = (data) => {
+        if (res.headersSent) return originalJson(data);
+        const jsonStr = JSON.stringify(data);
+        if (Buffer.byteLength(jsonStr) < 1024) {
+            return originalJson(data);
+        }
+        zlib.gzip(jsonStr, (err, compressed) => {
+            if (err || res.headersSent) {
+                return originalJson(data);
+            }
+            res.setHeader('Content-Encoding', 'gzip');
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Vary', 'Accept-Encoding');
+            res.send(compressed);
+        });
+        return res;
+    };
+    next();
+});
 
 // Endpoint kiểm tra sức khỏe và chống ngủ đông (Keep-alive cho UptimeRobot / Cron job)
 app.get('/api/health', (req, res) => {

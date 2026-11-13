@@ -1,9 +1,18 @@
 const db = require('../config/db');
 const { recalculateFromMaterial } = require('../utils/costCalculator');
+const { getCache, setCache, invalidateCache } = require('../utils/cache');
+
+const invalidateMaterialDependents = () => {
+    invalidateCache('materials_all', 'preps_all', 'toppings_all', 'menu_all', 'checkout_catalog');
+};
 
 exports.getAll = async (req, res) => {
     try {
+        const cached = getCache('materials_all');
+        if (cached) return res.json(cached);
+
         const [rows] = await db.query('SELECT * FROM materials ORDER BY id DESC');
+        setCache('materials_all', rows);
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -26,6 +35,7 @@ exports.create = async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [String(name).trim(), purchase_unit || 'Gói', base_unit || 'g', rate, price, cost_per_base_unit, parseFloat(stock_quantity) || 0]
         );
+        invalidateMaterialDependents();
         res.status(201).json({ id: result.insertId, message: 'Đã thêm nguyên liệu thành công' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -59,6 +69,7 @@ exports.update = async (req, res) => {
 
         // Tính toán lại giá vốn của Prep, MenuItem và Topping liên quan
         await recalculateFromMaterial(id);
+        invalidateMaterialDependents();
 
         res.json({ message: 'Cập nhật nguyên liệu thành công' });
     } catch (err) {
@@ -75,15 +86,18 @@ exports.updateStocktake = async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
-        for (const item of items) {
-            const qty = Math.max(0, parseFloat(item.actual_qty) || 0);
-            await connection.query(
-                'UPDATE materials SET stock_quantity = ? WHERE id = ?',
-                [qty, item.id]
-            );
-        }
+        await Promise.all(
+            items.map(item => {
+                const qty = Math.max(0, parseFloat(item.actual_qty) || 0);
+                return connection.query(
+                    'UPDATE materials SET stock_quantity = ? WHERE id = ?',
+                    [qty, item.id]
+                );
+            })
+        );
         await connection.commit();
         connection.release();
+        invalidateMaterialDependents();
         res.json({ message: 'Đã lưu kết quả kiểm kê kho thành công!' });
     } catch (err) {
         await connection.rollback();
@@ -144,6 +158,7 @@ exports.delete = async (req, res) => {
         await db.query('DELETE FROM topping_ingredients WHERE ingredient_type = "material" AND ingredient_id = ?', [id]);
 
         await db.query('DELETE FROM materials WHERE id = ?', [id]);
+        invalidateMaterialDependents();
         res.json({ message: 'Đã xóa nguyên liệu thành công' });
     } catch (err) {
         if (err.code === 'ER_ROW_IS_REFERENCED_2') {

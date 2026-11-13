@@ -71,7 +71,7 @@
           </span>
           <div class="flex gap-2">
             <button @click="openEditModal(prep)" class="px-3.5 py-1.5 bg-blue-50 text-blue-600 font-bold text-xs rounded-xl hover:bg-blue-100 transition">Sửa</button>
-            <button @click="deletePrep(prep)" class="px-3 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl hover:bg-red-100 transition">Xóa</button>
+            <button @click="deletePrep(prep)" :disabled="deletingId === prep.id" class="px-3 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl hover:bg-red-100 transition disabled:opacity-50">{{ deletingId === prep.id ? '...' : 'Xóa' }}</button>
           </div>
         </div>
       </div>
@@ -169,9 +169,9 @@
         </div>
 
         <div class="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2.5 shrink-0">
-          <button @click="closeModal" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200">Hủy</button>
-          <button @click="savePrep" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600">
-            {{ editingId ? 'Lưu Cập Nhật' : 'Lưu Prep' }}
+          <button @click="closeModal" :disabled="isSaving" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200 disabled:opacity-50">Hủy</button>
+          <button @click="savePrep" :disabled="isSaving" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50">
+            {{ isSaving ? 'Đang lưu...' : (editingId ? 'Lưu Cập Nhật' : 'Lưu Prep') }}
           </button>
         </div>
       </div>
@@ -190,6 +190,8 @@ const matSearch = ref('')
 
 const showAddModal = ref(false)
 const editingId = ref(null)
+const isSaving = ref(false)
+const deletingId = ref(null)
 const form = ref({ name: '', yield_quantity: '', base_unit: 'ml', ingredients: [] })
 const tempIng = ref({ material_id: '', name: '', qty: '', unit: '' })
 
@@ -303,6 +305,7 @@ const fetchData = async () => {
 onMounted(() => fetchData())
 
 const savePrep = async () => {
+  if (isSaving.value) return
   if (!form.value.name || !form.value.yield_quantity) {
     showToast('Vui lòng nhập Tên Prep và Sản lượng thu được!', 'warning')
     return
@@ -311,6 +314,7 @@ const savePrep = async () => {
     addIng()
   }
 
+  isSaving.value = true
   try {
     const url = `${API_BASE}/preps${editingId.value ? '/' + editingId.value : ''}`
     const method = editingId.value ? 'PUT' : 'POST'
@@ -329,11 +333,15 @@ const savePrep = async () => {
     }
   } catch (e) {
     showToast('Không thể kết nối máy chủ', 'error')
+  } finally {
+    isSaving.value = false
   }
 }
 
 const deletePrep = async (prep) => {
+  if (deletingId.value) return
   if (!confirm(`Bạn có chắc chắn muốn xóa Bán thành phẩm "${prep.name}"?`)) return
+  deletingId.value = prep.id
   try {
     const res = await fetch(`${API_BASE}/preps/${prep.id}`, { method: 'DELETE' })
     if (res.ok) {
@@ -345,6 +353,8 @@ const deletePrep = async (prep) => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    deletingId.value = null
   }
 }
 </script>

@@ -170,7 +170,7 @@ const fetchData = async () => {
 onMounted(() => fetchData())
 
 const saveStocktake = async () => {
-  if (inventory.value.length === 0) return
+  if (isSaving.value || inventory.value.length === 0) return
   isSaving.value = true
   try {
     const res = await fetch(`${API_BASE}/materials/stocktake`, {

@@ -60,7 +60,7 @@
             </td>
             <td class="py-3.5 px-3 text-right space-x-2 whitespace-nowrap">
               <button @click="openEditModal(mat)" class="px-3.5 py-1.5 bg-blue-50 text-blue-600 font-bold text-xs rounded-xl hover:bg-blue-100 transition">Sửa</button>
-              <button @click="deleteMaterial(mat)" class="px-3 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl hover:bg-red-100 transition">Xóa</button>
+              <button @click="deleteMaterial(mat)" :disabled="deletingId === mat.id" class="px-3 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl hover:bg-red-100 transition disabled:opacity-50">{{ deletingId === mat.id ? '...' : 'Xóa' }}</button>
             </td>
           </tr>
         </tbody>
@@ -88,7 +88,7 @@
         </div>
         <div class="pt-2 border-t border-gray-100 flex justify-end gap-2">
           <button @click="openEditModal(mat)" class="px-4 py-1.5 bg-blue-50 text-blue-600 font-bold text-xs rounded-xl">Sửa</button>
-          <button @click="deleteMaterial(mat)" class="px-4 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl">Xóa</button>
+          <button @click="deleteMaterial(mat)" :disabled="deletingId === mat.id" class="px-4 py-1.5 bg-red-50 text-red-500 font-bold text-xs rounded-xl disabled:opacity-50">{{ deletingId === mat.id ? '...' : 'Xóa' }}</button>
         </div>
       </div>
     </div>
@@ -142,9 +142,9 @@
         </div>
 
         <div class="p-4 sm:p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-2.5">
-          <button @click="closeModal" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200">Hủy</button>
-          <button @click="saveMaterial" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600">
-            {{ editingId ? 'Lưu Cập Nhật' : 'Lưu Nguyên Liệu' }}
+          <button @click="closeModal" :disabled="isSaving" class="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 bg-white border border-gray-200 disabled:opacity-50">Hủy</button>
+          <button @click="saveMaterial" :disabled="isSaving" class="px-6 py-2.5 rounded-xl font-extrabold text-sm text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50">
+            {{ isSaving ? 'Đang lưu...' : (editingId ? 'Lưu Cập Nhật' : 'Lưu Nguyên Liệu') }}
           </button>
         </div>
       </div>
@@ -160,6 +160,8 @@ const materials = ref([])
 const searchQuery = ref('')
 const showAddModal = ref(false)
 const editingId = ref(null)
+const isSaving = ref(false)
+const deletingId = ref(null)
 const form = ref({ name: '', purchase_unit: 'Gói', base_unit: 'gram', current_price: 0, conversion_rate: 500 })
 
 const filteredMaterials = computed(() => {
@@ -209,11 +211,13 @@ const fetchData = async () => {
 onMounted(() => fetchData())
 
 const saveMaterial = async () => {
+  if (isSaving.value) return
   if (!form.value.name || !String(form.value.name).trim()) {
     showToast('Vui lòng nhập tên nguyên liệu!', 'warning')
     return
   }
 
+  isSaving.value = true
   try {
     const url = `${API_BASE}/materials${editingId.value ? '/' + editingId.value : ''}`
     const method = editingId.value ? 'PUT' : 'POST'
@@ -233,11 +237,15 @@ const saveMaterial = async () => {
     }
   } catch (e) {
     showToast('Không thể kết nối đến Backend!', 'error')
+  } finally {
+    isSaving.value = false
   }
 }
 
 const deleteMaterial = async (mat) => {
+  if (deletingId.value) return
   if (!confirm(`Bạn có chắc chắn muốn xóa nguyên liệu "${mat.name}"?`)) return
+  deletingId.value = mat.id
   try {
     const res = await fetch(`${API_BASE}/materials/${mat.id}`, { method: 'DELETE' })
     if (res.ok) {
@@ -249,6 +257,8 @@ const deleteMaterial = async (mat) => {
     }
   } catch (e) {
     showToast('Lỗi kết nối máy chủ', 'error')
+  } finally {
+    deletingId.value = null
   }
 }
 </script>
